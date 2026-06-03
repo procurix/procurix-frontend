@@ -4,6 +4,7 @@ import { FileText, CheckCircle2, AlertTriangle, Clock, Search, Plus, ChevronRigh
 import { Button } from '@/app/shared/components/ui/button';
 import { Input } from '@/app/shared/components/ui/input';
 import { Badge } from '@/app/shared/components/ui/badge';
+import { TOTAL_WORKFLOW_STAGES, WORKFLOW_STAGES } from '@/app/shared/utils/workflowStages';
 
 interface BOMLibraryProps {
   sessions: BOMSession[];
@@ -16,34 +17,17 @@ export function BOMLibrary({ sessions, onSelectSession, onNewBOM }: BOMLibraryPr
   const [filterStatus, setFilterStatus] = useState<'all' | 'complete' | 'in-progress'>('all');
 
   const getStageLabel = (stage: string, stageNumber?: number) => {
-    // Special case: stage 8 is Subsystem Requirements (same page as stage 7 but different label)
-    if (stageNumber === 8) {
-      return 'Subsystem Requirements';
-    }
-    
-    const labels: Record<string, string> = {
-      upload: 'Upload & Parse',
-      'part-identification': 'Part Identification',
-      analysis: 'System Analysis',
-      validate: 'Validation',
-      requirements: 'Requirements',
-      architecture: 'Part Connections',
-      subsystems: 'Subsystems',
-      review: 'Status & Finalization',
-    };
-    return labels[stage] || stage;
+    return WORKFLOW_STAGES.find(item => item.stageNumber === stageNumber || item.id === stage)?.label || stage;
   };
 
   const getStageProgress = (stage: string, stageNumber?: number) => {
     // If we have the original stage number, use it directly for accurate progress
     if (stageNumber !== undefined) {
-      return (stageNumber / 9) * 100; // 9 total stages
+      return (stageNumber / TOTAL_WORKFLOW_STAGES) * 100;
     }
-    // Fallback: calculate based on stage name
-    const stages = ['upload', 'part-identification', 'analysis', 'validate', 'requirements', 'architecture', 'subsystems', 'review'];
-    const currentIndex = stages.indexOf(stage);
+    const currentIndex = WORKFLOW_STAGES.findIndex(item => item.id === stage);
     if (currentIndex === -1) return 0;
-    return ((currentIndex + 1) / 9) * 100; // 9 total stages
+    return ((currentIndex + 1) / TOTAL_WORKFLOW_STAGES) * 100;
   };
 
   const isComplete = (session: BOMSession) => session.stage === 'review' || (session.stage === 'subsystems' && session.complianceScore !== undefined);

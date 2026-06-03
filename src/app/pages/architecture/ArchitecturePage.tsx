@@ -1,21 +1,81 @@
-import { useState, useEffect } from 'react';
-import { useNavigate } from 'react-router-dom';
-import { SystemArchitectureView } from './components/SystemArchitectureView';
+import { useState, useEffect, useCallback } from 'react';
+import { SystemArchitectureView, type ComponentBlock } from './components/SystemArchitectureView';
 import { toast } from 'sonner';
 import { useSession } from '@/app/context/SessionContext';
-import { analyzeConnections, getConnections, getClassification, getPartSpecs, saveConnections, updateCurrentStageInContext, type Connection } from '@/app/services/api';
+import { analyzeConnections, confirmAllConnections, getArchitectureCompletionReadiness, getArchitectureProposals, getConnectionReviewStatus, getConnections, getClassification, getNets, getPartPinout, getPartPinouts, getPartSpecs, resolveConnectionPins, saveConnections, updateCurrentStageInContext, type ArchitectureCompletionReadiness, type ArchitectureNet, type ConnectionsResponse, type PartPinoutResponse } from '@/app/services/api';
 import { useQueryParams } from '@/app/shared/hooks/useQueryParams';
-import type { Component } from '@/app/types';
+import { useWorkflowNavigation } from '@/app/shared/hooks/useWorkflowNavigation';
+import type { Component, PartPin } from '@/app/types';
+import {
+  buildArchitectureComponents,
+  buildSaveConnectionPayload,
+  mapApiConnections,
+  mapUnresolvedProposalConnections,
+  type ArchitectureConnectionData,
+  type ArchitectureUnresolvedConnectionCandidate,
+} from './utils/connectionMapping';
+
+function errorMessage(error: unknown): string {
+  return error instanceof Error ? error.message : String(error);
+}
+
+function isHttpConflict(error: unknown): boolean {
+  return errorMessage(error).includes('409');
+}
+
+function isHttpNotFound(error: unknown): boolean {
+  return errorMessage(error).includes('404');
+}
+
+function attachNetIdsToConnections(response: ConnectionsResponse, nets: ArchitectureNet[]): ConnectionsResponse {
+  const netIdByConnectionId = new Map<string, string>();
+  for (const net of nets) {
+    for (const connectionId of net.member_connection_ids || []) {
+      netIdByConnectionId.set(connectionId, net.id);
+    }
+    for (const member of net.members || []) {
+      if (member.id) netIdByConnectionId.set(member.id, net.id);
+    }
+  }
+
+  return {
+    ...response,
+    connections: (response.connections || []).map((connection) => ({
+      ...connection,
+      net_id: connection.net_id ?? (connection.id ? netIdByConnectionId.get(connection.id) : undefined) ?? null,
+    })),
+  };
+}
+
+function toArchitecturePinout(pins: PartPin[] | null | undefined): Record<string, { name: string; type: string; description: string }> {
+  const pinout: Record<string, { name: string; type: string; description: string }> = {};
+  for (const pin of pins || []) {
+    const number = String(pin.number ?? '');
+    const name = String(pin.name ?? '').trim();
+    if (!number || !name) continue;
+    pinout[number] = {
+      name,
+      type: String(pin.direction ?? 'bidirectional').toUpperCase(),
+      description: String(pin.function ?? pin.notes ?? ''),
+    };
+  }
+  return pinout;
+}
 
 export function ArchitecturePage() {
-  const navigate = useNavigate();
   const { sessionId: contextSessionId, setSessionId, setCurrentStage, refreshTrigger } = useSession();
   const { sessionId: querySessionId, updateParams } = useQueryParams();
+  const { activeSessionId, navigateToStage } = useWorkflowNavigation();
   const [components, setComponents] = useState<Component[]>([]);
-  const [connections, setConnections] = useState<any[]>([]);
+  const [connections, setConnections] = useState<ArchitectureConnectionData[]>([]);
+  const [unresolvedConnections, setUnresolvedConnections] = useState<ArchitectureUnresolvedConnectionCandidate[]>([]);
+  const [nets, setNets] = useState<ArchitectureNet[]>([]);
+  const [completionReadiness, setCompletionReadiness] = useState<ArchitectureCompletionReadiness | null>(null);
   const [classificationMap, setClassificationMap] = useState<Record<string, string>>({});
   const [isLoading, setIsLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
+  // Temporal workflow ID returned when USE_TEMPORAL=true — needed to send the confirm signal
+  const [workflowId, setWorkflowId] = useState<string | null>(null);
 
   // Sync session ID from query params
   useEffect(() => {
@@ -24,23 +84,31 @@ export function ArchitecturePage() {
     }
   }, [querySessionId, contextSessionId, setSessionId]);
 
+  const refreshCompletionReadiness = useCallback(async (): Promise<ArchitectureCompletionReadiness | null> => {
+    if (!activeSessionId) {
+      setCompletionReadiness(null);
+      return null;
+    }
+    const readiness = await getArchitectureCompletionReadiness(activeSessionId);
+    setCompletionReadiness(readiness);
+    return readiness;
+  }, [activeSessionId]);
+
   useEffect(() => {
     let isCurrent = true;
 
     const fetchConnections = async () => {
-      const activeSessionId = contextSessionId || querySessionId;
-
       if (!activeSessionId) {
-        if (isCurrent) { setError('No session ID available'); setIsLoading(false); }
+        if (isCurrent) { setError('No session ID available'); setCompletionReadiness(null); setIsLoading(false); }
         return;
       }
 
       try {
         if (isCurrent) { setIsLoading(true); setError(null); }
-        updateParams(activeSessionId);
+        if (!querySessionId) updateParams(activeSessionId);
 
         // GET first — only POST (generate) if truly empty
-        let response;
+        let response: ConnectionsResponse;
         try {
           response = await getConnections(activeSessionId, activeSessionId);
 
@@ -48,22 +116,24 @@ export function ArchitecturePage() {
             if (!isCurrent) return;
             try {
               response = await analyzeConnections(activeSessionId);
-            } catch (postError: any) {
+              if (isCurrent && response.workflow_id) setWorkflowId(response.workflow_id);
+            } catch (postError: unknown) {
               // 409 = another concurrent call is already generating — re-fetch
-              if (postError.message?.includes('409')) {
+              if (isHttpConflict(postError)) {
                 response = await getConnections(activeSessionId, activeSessionId);
               } else {
                 throw postError;
               }
             }
           }
-        } catch (getError: any) {
-          if (getError.message?.includes('404')) {
+        } catch (getError: unknown) {
+          if (isHttpNotFound(getError)) {
             if (!isCurrent) return;
             try {
               response = await analyzeConnections(activeSessionId);
-            } catch (postError: any) {
-              if (postError.message?.includes('409')) {
+              if (isCurrent && response.workflow_id) setWorkflowId(response.workflow_id);
+            } catch (postError: unknown) {
+              if (isHttpConflict(postError)) {
                 response = await getConnections(activeSessionId, activeSessionId);
               } else {
                 throw postError;
@@ -76,107 +146,110 @@ export function ArchitecturePage() {
 
         if (!isCurrent) return;
 
+        const needsPinResolution = response.connections?.some((conn) => {
+          const hasNoPins = !conn.source_pin && !conn.target_pin;
+          const wasSavedBeforePinResolution = conn.pin_resolution_source === 'manual' && hasNoPins;
+          return !conn.user_corrected
+            && hasNoPins
+            && (!conn.pin_resolution_source || wasSavedBeforePinResolution);
+        });
+        if (needsPinResolution) {
+          try {
+            response = await resolveConnectionPins(activeSessionId);
+          } catch {
+            // Non-fatal: diagram still renders component-level connections.
+          }
+        }
+
+        let persistedNets: ArchitectureNet[] = [];
+        try {
+          const netsResponse = await getNets(activeSessionId);
+          persistedNets = netsResponse.nets || [];
+          response = attachNetIdsToConnections(response, persistedNets);
+        } catch (netError) {
+          console.warn('Could not load persisted architecture nets; using generated net fallback.', netError);
+        }
+
         // Fetch all classified parts so isolated (unconnected) parts still appear
-        let allPartNumbers: string[] = [];
         let specsMap: Record<string, Record<string, unknown>> = {};
+        let displayedPartNumbers: string[] = [];
+        let pinoutMap: Record<string, Record<string, { name: string; type: string; description: string }>> = {};
         try {
           const [cls, specs] = await Promise.all([
             getClassification(activeSessionId),
             getPartSpecs(activeSessionId),
           ]);
-          allPartNumbers = Object.keys(cls.classification_map || {});
           specsMap = specs;
-          if (isCurrent) setClassificationMap(cls.classification_map || {});
+          if (isCurrent) {
+            const nonNullClassificationMap = Object.fromEntries(
+              Object.entries(cls.classification_map || {}).filter((entry): entry is [string, string] => entry[1] !== null),
+            );
+            // Pass all classified parts so the All/Fundamental toggle has full data.
+            // SystemArchitectureView defaults to 'fundamental' mode; the toggle
+            // uses classificationMap to decide which nodes to show.
+            displayedPartNumbers = Object.keys(nonNullClassificationMap);
+            setClassificationMap(nonNullClassificationMap);
+          }
+          try {
+            const batchPinouts = await getPartPinouts(activeSessionId, displayedPartNumbers);
+            pinoutMap = Object.fromEntries(
+              Object.entries(batchPinouts.pinouts || {}).map(([mpn, pinout]) => [mpn, toArchitecturePinout(pinout.pins)]),
+            );
+          } catch {
+            const pinoutResults = await Promise.allSettled(
+              displayedPartNumbers.map(async (mpn) => [mpn, await getPartPinout(activeSessionId, mpn)] as const),
+            );
+            pinoutMap = Object.fromEntries(
+              pinoutResults
+                .filter((result): result is PromiseFulfilledResult<readonly [string, PartPinoutResponse]> => result.status === 'fulfilled')
+                .map((result) => [result.value[0], toArchitecturePinout(result.value[1].pins)]),
+            );
+          }
         } catch {
           // fallback: derive from connections only
         }
         if (!isCurrent) return;
 
-        // Build component list from connections (which now use instance IDs like "TPS62840_1")
-        // Each instance becomes a separate node in the architecture view
-        const uniqueInstances = new Set<string>();
-        response.connections.forEach((conn: Connection) => {
-          if (conn.source_part) uniqueInstances.add(conn.source_part);
-          if (conn.target_part) uniqueInstances.add(conn.target_part);
-        });
+        let pendingProposals: ArchitectureUnresolvedConnectionCandidate[] = [];
+        try {
+          const proposalResponse = await getArchitectureProposals(activeSessionId, 'pending');
+          pendingProposals = mapUnresolvedProposalConnections(proposalResponse.proposals || []);
+        } catch (proposalError) {
+          console.warn('Could not load unresolved architecture proposals.', proposalError);
+        }
 
-        // Helper to extract base MPN from instance_id (e.g., "TPS62840_1" -> "TPS62840")
-        const extractMpn = (instanceId: string): string => {
-          if (instanceId.includes('_')) {
-            const parts = instanceId.split('_');
-            const lastPart = parts[parts.length - 1];
-            if (/^\d+$/.test(lastPart)) {
-              return parts.slice(0, -1).join('_');
-            }
-          }
-          return instanceId;
-        };
-
-        // Helper to extract instance index (e.g., "TPS62840_1" -> 1)
-        const extractInstanceIndex = (instanceId: string): number | null => {
-          if (instanceId.includes('_')) {
-            const parts = instanceId.split('_');
-            const lastPart = parts[parts.length - 1];
-            if (/^\d+$/.test(lastPart)) {
-              return parseInt(lastPart, 10);
-            }
-          }
-          return null;
-        };
-
-        // Create Component objects from instances
-        const componentsList: Component[] = Array.from(uniqueInstances).map((instanceId) => {
-          const baseMpn = extractMpn(instanceId);
-          const instanceIndex = extractInstanceIndex(instanceId);
-          const isInstance = instanceIndex !== null;
-
-          // Get specs using base MPN (specs are shared across instances)
-          const specs = specsMap[baseMpn] ?? {};
-
-          return {
-            id: instanceId,
-            reference: instanceId,
-            partNumber: baseMpn,
-            // Add instance info to display
-            type: isInstance ? `${specs.Category || 'component'} (${instanceIndex})` : 'component',
-            description: specs.Description || `Component ${baseMpn}`,
-            specs: {
-              ...specs,
-              // Add instance-specific display info
-              ...(isInstance ? { 'Instance': `${instanceIndex} of qty` } : {}),
-            },
-            isIdentified: true,
-            isGeneric: false,
-            complianceStatus: 'compliant',
-          };
-        });
-
-        // Map connections to ConnectionData format
-        const mappedConnections = response.connections
-          .filter((conn: Connection) => conn.target_part !== null) // Filter out connections without target
-          .map((conn: Connection, index: number) => {
-            // Connection types are normalized to canonical values by the backend before storage.
-            // Use the type as-is; fall back to 'signal' only for truly unknown values.
-            const mappedType = conn.connection_type.toLowerCase() || 'signal';
-            
-            return {
-              id: `conn-${conn.source_part}-${conn.target_part}-${index}`,
-              from: conn.source_part,
-              to: conn.target_part!,
-              type: mappedType as any,
-              connection_type: conn.connection_type,
-              label: conn.reasoning,
-              edgeType: 'smoothstep', // Default to smoothstep
-            };
-          });
+        const componentsList = buildArchitectureComponents(response.connections, displayedPartNumbers, specsMap, pinoutMap);
+        const mappedConnections = mapApiConnections(response.connections);
+        const mappedUnresolvedConnections = pendingProposals;
 
         setComponents(componentsList);
         setConnections(mappedConnections);
+        setUnresolvedConnections(mappedUnresolvedConnections);
+        setNets(persistedNets);
+        try {
+          const readiness = await getArchitectureCompletionReadiness(activeSessionId);
+          if (isCurrent) setCompletionReadiness(readiness);
+        } catch (readinessError) {
+          console.warn('Could not load architecture completion readiness.', readinessError);
+          if (isCurrent) setCompletionReadiness(null);
+        }
         setIsLoading(false);
+
+        // Hydrate workflowId after a page refresh — the review-status endpoint
+        // queries the Temporal workflow (deterministic ID) to check if it is
+        // still waiting at the connections_review HITL gate.
+        getConnectionReviewStatus(activeSessionId)
+          .then(rs => {
+            if (isCurrent && rs.pending_review && rs.workflow_id) {
+              setWorkflowId((current) => current ?? rs.workflow_id);
+            }
+          })
+          .catch(() => { /* non-fatal: USE_TEMPORAL=false or workflow already done */ });
       } catch (err) {
         if (!isCurrent) return;
         const errorMessage = err instanceof Error ? err.message : 'Failed to fetch connections';
         setError(errorMessage);
+        setCompletionReadiness(null);
         toast.error(errorMessage);
         setIsLoading(false);
       }
@@ -184,27 +257,27 @@ export function ArchitecturePage() {
 
     fetchConnections();
     return () => { isCurrent = false; };
-  }, [contextSessionId, querySessionId, updateParams, refreshTrigger]);
+  }, [activeSessionId, querySessionId, updateParams, refreshTrigger]);
+
+  const refreshNets = useCallback(async (): Promise<ArchitectureNet[]> => {
+    if (!activeSessionId) return [];
+    const netsResponse = await getNets(activeSessionId);
+    const nextNets = netsResponse.nets || [];
+    setNets(nextNets);
+    void refreshCompletionReadiness();
+    return nextNets;
+  }, [activeSessionId, refreshCompletionReadiness]);
 
   const handleArchitectureComplete = async (
-    _blocks: any[],
-    updatedConnections: any[],
+    _blocks: ComponentBlock[],
+    updatedConnections: ArchitectureConnectionData[],
   ) => {
-    const activeSessionId = contextSessionId || querySessionId;
+    if (!activeSessionId) return;
 
-    // Persist the user-corrected connections to bom_part_connections (source of truth)
-    if (activeSessionId && updatedConnections.length > 0) {
+    // Step 1: persist the user-edited graph. Confirm-all owns FSM advancement.
+    if (updatedConnections.length > 0) {
       try {
-        const payload = updatedConnections
-          .filter((c) => c.from && c.to)
-          .map((c) => ({
-            source_part: c.from,
-            target_part: c.to,
-            // Explicitly send instance IDs for instance-based tracking
-            source_instance_id: c.from,
-            target_instance_id: c.to,
-            connection_type: c.type || c.connection_type || 'signal',
-          }));
+        const payload = buildSaveConnectionPayload(updatedConnections);
         await saveConnections(activeSessionId, payload);
       } catch (error) {
         console.error('Error saving connections:', error);
@@ -213,8 +286,41 @@ export function ArchitecturePage() {
       }
     }
 
-    // Update current stage
-    if (activeSessionId && setCurrentStage) {
+    // Step 2: advance FSM and send Temporal HITL signal.
+    // confirmAllConnections rejects an empty architecture (HTTP 422) unless force=true.
+    // If the user has no connections, require explicit acknowledgement before proceeding.
+    const hasConnections = updatedConnections.filter((c) => c.from && c.to).length > 0;
+    if (!hasConnections) {
+      const confirmed = window.confirm(
+        'No connections are defined. Confirm an empty architecture and proceed to subsystems?',
+      );
+      if (!confirmed) return;
+    }
+
+    // Hydrate workflowId synchronously if it's still null (fast refresh/confirm race).
+    // workflowId is set asynchronously after load; if the user completes before that
+    // promise resolves, the Temporal signal would be skipped. We check here as a fallback
+    // so the signal is never silently dropped.
+    let activeWorkflowId = workflowId;
+    if (!activeWorkflowId) {
+      try {
+        const rs = await getConnectionReviewStatus(activeSessionId);
+        if (rs.pending_review && rs.workflow_id) activeWorkflowId = rs.workflow_id;
+      } catch {
+        // Non-fatal: USE_TEMPORAL=false or network error — confirm-all still advances FSM
+      }
+    }
+
+    try {
+      await confirmAllConnections(activeSessionId, activeWorkflowId, !hasConnections);
+    } catch (error) {
+      console.error('confirmAllConnections failed:', error);
+      toast.error(error instanceof Error ? error.message : 'Failed to confirm architecture - please try again.');
+      return;
+    }
+
+    // Step 3: update stage indicator in session context
+    if (setCurrentStage) {
       try {
         await updateCurrentStageInContext(activeSessionId, setCurrentStage);
       } catch (error) {
@@ -223,11 +329,7 @@ export function ArchitecturePage() {
     }
 
     toast.success('System architecture defined!');
-    if (activeSessionId) {
-      navigate(`/subsystems?session=${activeSessionId}`);
-    } else {
-      navigate('/subsystems');
-    }
+    navigateToStage('subsystems');
   };
 
   if (isLoading) {
@@ -262,7 +364,14 @@ export function ArchitecturePage() {
       components={components}
       onArchitectureComplete={handleArchitectureComplete}
       initialConnections={connections}
+      initialUnresolvedConnections={unresolvedConnections}
+      initialNets={nets}
+      completionReadiness={completionReadiness}
       classificationMap={classificationMap}
+      designId={activeSessionId || undefined}
+      layoutScopeId={activeSessionId || undefined}
+      onRefreshNets={refreshNets}
+      onRefreshCompletionReadiness={refreshCompletionReadiness}
     />
   );
 }

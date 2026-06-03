@@ -7,17 +7,17 @@
  */
 
 import { useEffect } from 'react';
-import { useNavigate } from 'react-router-dom';
 import { FundamentalClassificationView } from '../fundamental/components/FundamentalClassificationView';
 import type { Component } from '@/app/types';
 import { toast } from 'sonner';
 import { useSession } from '@/app/context/SessionContext';
 import { useQueryParams } from '@/app/shared/hooks/useQueryParams';
+import { useWorkflowNavigation } from '@/app/shared/hooks/useWorkflowNavigation';
 
 export function ClassificationPage() {
-  const navigate = useNavigate();
   const { sessionId: contextSessionId, setSessionId } = useSession();
   const { sessionId: querySessionId, updateParams } = useQueryParams();
+  const { navigateToStage } = useWorkflowNavigation();
 
   useEffect(() => {
     if (querySessionId && querySessionId !== contextSessionId) {
@@ -26,22 +26,17 @@ export function ClassificationPage() {
   }, [querySessionId, contextSessionId, setSessionId]);
 
   useEffect(() => {
-    if (contextSessionId && contextSessionId !== querySessionId) {
+    if (contextSessionId && !querySessionId) {
       updateParams(contextSessionId);
     }
   }, [contextSessionId, querySessionId, updateParams]);
 
   const handleClassificationComplete = (classifiedComponents: Component[]) => {
-    const activeSessionId = contextSessionId || querySessionId;
     const fundamentalCount = classifiedComponents.filter(c => c.isFundamental === true).length;
     const auxiliaryCount = classifiedComponents.filter(c => c.isFundamental === false).length;
 
     toast.success(`Classification complete! ${fundamentalCount} fundamental, ${auxiliaryCount} auxiliary`);
-    if (activeSessionId) {
-      navigate(`/enrichment?session=${activeSessionId}`);
-    } else {
-      navigate('/enrichment');
-    }
+    navigateToStage('enrichment');
   };
 
   return (

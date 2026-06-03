@@ -1,14 +1,14 @@
 import { useEffect } from 'react';
-import { useNavigate } from 'react-router-dom';
 import { AnalysisView } from './components/AnalysisView';
 import { toast } from 'sonner';
 import { useSession } from '@/app/context/SessionContext';
 import { useQueryParams } from '@/app/shared/hooks/useQueryParams';
+import { useWorkflowNavigation } from '@/app/shared/hooks/useWorkflowNavigation';
 
 export function AnalysisPage() {
-  const navigate = useNavigate();
   const { sessionId: contextSessionId, setSessionId } = useSession();
   const { sessionId: querySessionId, updateParams } = useQueryParams();
+  const { navigateToStage } = useWorkflowNavigation();
 
   // Sync session ID from query params
   useEffect(() => {
@@ -19,19 +19,14 @@ export function AnalysisPage() {
 
   // Update URL with session ID if it exists in context but not in URL
   useEffect(() => {
-    if (contextSessionId && contextSessionId !== querySessionId) {
+    if (contextSessionId && !querySessionId) {
       updateParams(contextSessionId);
     }
   }, [contextSessionId, querySessionId, updateParams]);
 
   const handleSystemTypeSelected = (systemType: string) => {
-    const activeSessionId = contextSessionId || querySessionId;
     toast.success(`System type selected: ${systemType}`);
-    if (activeSessionId) {
-      navigate(`/classification?session=${activeSessionId}`);
-    } else {
-      navigate('/classification');
-    }
+    navigateToStage('classification');
   };
 
   return <AnalysisView onSystemTypeSelected={handleSystemTypeSelected} />;

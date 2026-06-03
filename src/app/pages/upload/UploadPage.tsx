@@ -1,4 +1,4 @@
-import { useEffect } from 'react';
+import { useEffect, useRef } from 'react';
 import { useNavigate } from 'react-router-dom';
 import { UploadView } from './components/UploadView';
 import { toast } from 'sonner';
@@ -8,21 +8,22 @@ import { useQueryParams } from '@/app/shared/hooks/useQueryParams';
 export function UploadPage() {
   const navigate = useNavigate();
   const { sessionId: contextSessionId, setSessionId, setCurrentStage, setUploadData } = useSession();
-  const { sessionId: querySessionId, updateParams } = useQueryParams();
+  const { sessionId: querySessionId } = useQueryParams();
+  const initialQuerySessionId = useRef(querySessionId);
 
-  // Clear session context and URL params when entering upload page for a new BOM
+  // Clear session context only for an explicit fresh upload route. If the
+  // route has ?session=..., preserve it; guards may send users here for a
+  // not-yet-uploaded design, and clearing would orphan that design.
   useEffect(() => {
-    // On mount, clear everything to ensure fresh start
-    // This handles the case when user clicks "Upload New BOM" from library
+    if (initialQuerySessionId.current) {
+      setSessionId(initialQuerySessionId.current);
+      return;
+    }
+
     setSessionId(null);
     setCurrentStage(null);
     setUploadData(null);
-    
-    // If there's a query param, clear it (we're starting fresh)
-    if (querySessionId) {
-      updateParams(undefined);
-    }
-  }, []); // Only run on mount to handle new uploads
+  }, [setCurrentStage, setSessionId, setUploadData]); // Only run on mount to handle new uploads
 
   // Sync session ID from query params (only when query param changes and we have a valid session)
   useEffect(() => {
@@ -31,20 +32,11 @@ export function UploadPage() {
     }
   }, [querySessionId, contextSessionId, setSessionId]);
 
-  // Update URL with session ID when context changes (for new uploads)
-  // This ensures new sessions replace old ones in the URL
-  useEffect(() => {
-    // Update URL if context has a session and it's different from URL
-    // This handles the case when a new file is uploaded and creates a new session
-    if (contextSessionId && contextSessionId !== querySessionId) {
-      updateParams(contextSessionId);
-    }
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [contextSessionId, querySessionId]); // updateParams is stable via ref, no need in deps
-
-  const handleUploadComplete = (_data: any) => {
-    // Don't navigate automatically - let user see the data and click button
+  const handleUploadComplete = (_data: { sessionId: string }) => {
     toast.success('BOM uploaded successfully!');
+    // Navigation is deferred to the user clicking "Start Part Identification",
+    // which fires onProceedToClassification. The session ID is already in
+    // context (set by UploadView before this callback fires).
   };
 
   const handleProceedToClassification = () => {

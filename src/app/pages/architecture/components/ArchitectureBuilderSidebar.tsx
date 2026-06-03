@@ -4,6 +4,7 @@ import { Button } from '@/app/shared/components/ui/button';
 import { Input } from '@/app/shared/components/ui/input';
 import { Textarea } from '@/app/shared/components/ui/textarea';
 import type { Component } from '@/app/types';
+import type { ArchitectureConnectionData as ConnectionData } from '../utils/connectionMapping';
 
 interface ComponentBlock extends Component {
   x: number;
@@ -12,19 +13,6 @@ interface ComponentBlock extends Component {
   category?: string;
   quantity?: number;
   pinout?: Record<string, { name: string; type: string; description: string }>;
-}
-
-interface ConnectionData {
-  id: string;
-  from: string;
-  to: string;
-  type: 'power' | 'signal' | 'data' | 'analog' | 'differential' | 'clock' | 'ground' | 'switching' | 'power_and_feedback' | 'feedback' | 'control';
-  label?: string;
-  pins?: string;
-  connection_type?: string;
-  signal_name?: string;
-  from_pin?: string;
-  to_pin?: string;
 }
 
 interface ArchitectureBuilderSidebarProps {
@@ -245,6 +233,13 @@ export function ArchitectureBuilderSidebar({
     from_pin: '',
     to_pin: '',
   });
+  const connectionPinsComplete = Boolean(connectionForm.from_pin?.trim() && connectionForm.to_pin?.trim());
+  const canSubmitConnection = Boolean(
+    connectionForm.from &&
+    connectionForm.to &&
+    connectionForm.type &&
+    (editingConnectionId || connectionPinsComplete)
+  );
 
   const handleComponentSubmit = () => {
     if (!componentForm.id || !componentForm.reference || !componentForm.type) {
@@ -252,7 +247,7 @@ export function ArchitectureBuilderSidebar({
     }
 
     // Convert specs entries to object
-    const specs: Record<string, any> = {};
+    const specs: Record<string, string | number> = {};
     specsEntries.forEach(({ key, value }) => {
       if (key.trim()) {
         // Try to parse as number if possible
@@ -281,7 +276,8 @@ export function ArchitectureBuilderSidebar({
     // Always include pinout, even if empty - this ensures it's saved
     // IMPORTANT: Remove pinout from componentForm before spreading to avoid conflicts
     // Pinout is managed separately via pinoutEntries, not componentForm
-    const { pinout: _, ...componentFormWithoutPinout } = componentForm;
+    const componentFormWithoutPinout = { ...componentForm };
+    delete componentFormWithoutPinout.pinout;
     
     // Build final component with required fields
     const finalComponent: Omit<ComponentBlock, 'x' | 'y' | 'connections'> = {
@@ -330,7 +326,7 @@ export function ArchitectureBuilderSidebar({
   };
 
   const handleConnectionSubmit = () => {
-    if (!connectionForm.from || !connectionForm.to || !connectionForm.type) {
+    if (!canSubmitConnection) {
       return;
     }
 
@@ -404,14 +400,12 @@ export function ArchitectureBuilderSidebar({
         const numB = parseInt(b) || 0;
         return numA - numB;
       })
-      .map(([_pinNumber, pinData]) => {
-        // Handle both direct pinData objects and nested structures
-        // pinNumber is ignored - it will be auto-generated from index when saving
-        const pin = pinData as any;
+      .map(([, pin]) => {
+        // Pin number is ignored - it will be auto-generated from index when saving.
         return {
-          name: pin?.name || '',
-          type: pin?.type || 'INPUT',
-          description: pin?.description || '',
+          name: pin.name || '',
+          type: pin.type || 'INPUT',
+          description: pin.description || '',
         };
       });
     setPinoutEntries(pinoutArray);
@@ -1361,11 +1355,17 @@ export function ArchitectureBuilderSidebar({
                   </div>
 
                   <div className="flex gap-2 pt-2">
+                    {!editingConnectionId && !connectionPinsComplete && (
+                      <div className="rounded-md border border-amber-200 bg-amber-50 px-3 py-2 text-xs text-amber-800">
+                        New manual connections must specify both endpoint pins.
+                      </div>
+                    )}
+
                     <Button
                       onClick={handleConnectionSubmit}
                       size="sm"
                       className="flex-1"
-                      disabled={!connectionForm.from || !connectionForm.to || !connectionForm.type}
+                      disabled={!canSubmitConnection}
                     >
                       <Save className="h-3 w-3 mr-1" />
                       {editingConnectionId ? 'Update' : 'Add'}
@@ -1388,6 +1388,8 @@ export function ArchitectureBuilderSidebar({
               {connections.map((conn) => {
                 const fromBlock = blocks.find((b) => b.id === conn.from);
                 const toBlock = blocks.find((b) => b.id === conn.to);
+                const pct = conn.confidence != null ? Math.round(conn.confidence * 100) : null;
+                const confColor = pct == null ? '' : pct >= 80 ? 'bg-green-100 text-green-700' : pct >= 50 ? 'bg-yellow-100 text-yellow-700' : 'bg-red-100 text-red-700';
                 return (
                   <div
                     key={conn.id}
@@ -1395,7 +1397,7 @@ export function ArchitectureBuilderSidebar({
                   >
                     <div className="flex items-start justify-between">
                       <div className="flex-1 min-w-0">
-                        <div className="flex items-center gap-2">
+                        <div className="flex items-center gap-2 flex-wrap">
                           <span className="text-xs font-medium text-gray-500">
                             {fromBlock?.reference || conn.from}
                           </span>
@@ -1403,6 +1405,11 @@ export function ArchitectureBuilderSidebar({
                           <span className="text-xs font-medium text-gray-500">
                             {toBlock?.reference || conn.to}
                           </span>
+                          {pct != null && (
+                            <span className={`text-[10px] font-semibold px-1.5 py-0.5 rounded ${confColor}`}>
+                              {pct}%
+                            </span>
+                          )}
                         </div>
                         <div className="text-xs text-gray-600 mt-1">
                           <span className="font-medium">{conn.type}</span>
@@ -1410,8 +1417,23 @@ export function ArchitectureBuilderSidebar({
                             <span className="ml-2">• {conn.signal_name}</span>
                           )}
                         </div>
-                        {conn.label && (
-                          <div className="text-xs text-gray-500 mt-1">{conn.label}</div>
+                        {(conn.reasoning || conn.label) && (
+                          <div className="text-xs text-gray-400 mt-1 line-clamp-2">
+                            {conn.reasoning || conn.label}
+                          </div>
+                        )}
+                        {conn.source_requirement_ids && conn.source_requirement_ids.length > 0 && (
+                          <div className="flex flex-wrap gap-1 mt-1.5">
+                            {conn.source_requirement_ids.map((rid) => (
+                              <span
+                                key={rid}
+                                className="text-[10px] px-1.5 py-0.5 rounded bg-blue-50 text-blue-600 font-mono border border-blue-200"
+                                title={`Requirement: ${rid}`}
+                              >
+                                {rid.length > 12 ? `${rid.slice(0, 10)}…` : rid}
+                              </span>
+                            ))}
+                          </div>
                         )}
                       </div>
                       <div className="flex gap-1 ml-2">

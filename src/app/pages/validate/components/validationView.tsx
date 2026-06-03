@@ -1,7 +1,7 @@
 import { useState, useEffect, useRef } from 'react';
 import type { Component } from '@/app/types';
 import {
-  CheckCircle, AlertCircle, Search, X, ExternalLink, ArrowRight,
+  AlertCircle, Search, X, ExternalLink, ArrowRight,
   Zap, Cpu, ChevronDown, Package, Hash, Factory, Layers, DollarSign, Boxes,
   Loader2, PenLine,
 } from 'lucide-react';
@@ -9,7 +9,7 @@ import { motion, AnimatePresence } from 'motion/react';
 import { toast } from 'sonner';
 import { useSession } from '@/app/context/SessionContext';
 import {
-  validateParts, getValidationResults, type ValidationResult,
+  confirmPartReview, getValidationResults, type ValidationResult,
   startEnrichFundamentals, getEnrichmentStatus, saveCustomPart, suggestPartFields,
 } from '@/app/services/api';
 
@@ -18,7 +18,7 @@ interface ValidationViewProps {
   onValidationComplete: (validatedComponents: Component[]) => void;
 }
 
-// ── Expandable Part Card ───────────────────────────────────────────────────────
+// Expandable part card
 
 function PartCard({ r, sessionId, onRefresh, enrichmentStatus }: {
   r: ValidationResult;
@@ -37,9 +37,17 @@ function PartCard({ r, sessionId, onRefresh, enrichmentStatus }: {
   const isConfirmed = r.status === 'valid';
   const hasParams = Object.keys(r.params ?? {}).length > 0;
   const hasCandidates = (r.candidates?.length ?? 0) > 1;
-  // Only show enriching spinner for web-sourced parts — Nexar parts have full specs already
-  const isWebSource = r.source && ['web', 'web_broad', 'web_confirmed'].includes(r.source);
-  const isEnriching = isWebSource && (enrichmentStatus === 'pending' || enrichmentStatus === 'enriching');
+  const isEnriching = enrichmentStatus === 'pending' || enrichmentStatus === 'enriching';
+  const formatSpecValue = (spec: unknown) => {
+    if (spec == null) return '-';
+    if (typeof spec !== 'object') return String(spec);
+    const value = spec as { display_value?: unknown; value?: unknown; units?: unknown };
+    if (value.display_value != null) return String(value.display_value);
+    if (value.value != null) {
+      return `${value.value}${value.units ? ` ${value.units}` : ''}`;
+    }
+    return JSON.stringify(spec);
+  };
 
   const handleLoadFields = async () => {
     setLoadingFields(true);
@@ -78,7 +86,7 @@ function PartCard({ r, sessionId, onRefresh, enrichmentStatus }: {
           : 'border-amber-200'
       }`}
     >
-      {/* Summary row — click to expand */}
+      {/* Summary row - click to expand */}
       <button
         className="w-full text-left px-4 py-3.5 flex items-center gap-3 group"
         onClick={() => setOpen(v => !v)}
@@ -114,12 +122,12 @@ function PartCard({ r, sessionId, onRefresh, enrichmentStatus }: {
 
         {/* Confidence + chevron */}
         <div className="shrink-0 flex items-center gap-3">
-          {isConfirmed && r.confidence > 0 && (
+          {isConfirmed && (r.confidence ?? 0) > 0 && (
             <div className="hidden sm:flex items-center gap-1.5">
               <div className="w-16 h-1.5 bg-gray-100 rounded-full overflow-hidden">
-                <div className="h-full bg-green-500 rounded-full" style={{ width: `${r.confidence * 100}%` }} />
+                <div className="h-full bg-green-500 rounded-full" style={{ width: `${(r.confidence ?? 0) * 100}%` }} />
               </div>
-              <span className="text-[10px] text-gray-400">{(r.confidence * 100).toFixed(0)}%</span>
+              <span className="text-[10px] text-gray-400">{((r.confidence ?? 0) * 100).toFixed(0)}%</span>
             </div>
           )}
           <ChevronDown className={`h-4 w-4 text-gray-400 transition-transform duration-200 ${open ? 'rotate-180' : ''}`} />
@@ -212,11 +220,11 @@ function PartCard({ r, sessionId, onRefresh, enrichmentStatus }: {
                     Technical Specifications
                   </div>
                   <div className="grid grid-cols-2 gap-1.5">
-                    {Object.entries(r.params).map(([key, spec]) => (
+                    {Object.entries(r.params ?? {}).map(([key, spec]) => (
                       <div key={key} className="flex items-center justify-between bg-gray-50 rounded-lg px-3 py-1.5">
                         <span className="text-xs text-gray-500 truncate mr-2">{key}</span>
                         <span className="text-xs font-semibold text-gray-800 shrink-0">
-                          {spec.display_value ?? (spec.value != null ? `${spec.value}${spec.units ? ' ' + spec.units : ''}` : '—')}
+                          {formatSpecValue(spec)}
                         </span>
                       </div>
                     ))}
@@ -228,10 +236,10 @@ function PartCard({ r, sessionId, onRefresh, enrichmentStatus }: {
               {hasCandidates && (
                 <div>
                   <div className="text-[10px] text-gray-400 uppercase tracking-wide font-semibold mb-2">
-                    Nexar Matches ({r.candidates.length})
+                    Candidate Matches ({r.candidates?.length ?? 0})
                   </div>
                   <div className="space-y-1.5">
-                    {r.candidates.map((c, i) => (
+                    {(r.candidates ?? []).map((c, i) => (
                       <div key={c.mpn} className={`flex items-center justify-between rounded-lg px-3 py-1.5 text-xs ${
                         i === 0 ? 'bg-blue-50 border border-blue-100' : 'bg-gray-50'
                       }`}>
@@ -240,7 +248,7 @@ function PartCard({ r, sessionId, onRefresh, enrichmentStatus }: {
                           {c.category && <span className="text-gray-400 ml-2">{c.category}</span>}
                         </div>
                         {c.is_exact_match && (
-                          <span className="text-green-600 font-medium shrink-0 ml-2">✓ exact</span>
+                          <span className="text-green-600 font-medium shrink-0 ml-2">exact</span>
                         )}
                       </div>
                     ))}
@@ -271,7 +279,7 @@ function PartCard({ r, sessionId, onRefresh, enrichmentStatus }: {
               {isEnriching && (
                 <div className="flex items-center gap-2 text-xs text-blue-600 bg-blue-50 border border-blue-200 rounded-lg px-3 py-2">
                   <Loader2 className="h-3.5 w-3.5 animate-spin shrink-0" />
-                  Extracting technical specs from datasheet…
+                  Extracting technical specs from datasheet...
                 </div>
               )}
 
@@ -298,7 +306,7 @@ function PartCard({ r, sessionId, onRefresh, enrichmentStatus }: {
                               type="text"
                               value={manualForm[field]}
                               onChange={e => setManualForm(prev => ({ ...prev, [field]: e.target.value }))}
-                              placeholder={field === 'datasheet_url' ? 'https://…' : ''}
+                              placeholder={field === 'datasheet_url' ? 'https://...' : ''}
                               className="w-full text-xs border border-gray-200 rounded-lg px-2.5 py-1.5 focus:outline-none focus:ring-1 focus:ring-blue-400 bg-white"
                             />
                           </div>
@@ -350,7 +358,7 @@ function PartCard({ r, sessionId, onRefresh, enrichmentStatus }: {
   );
 }
 
-// ── Main View ──────────────────────────────────────────────────────────────────
+// Main view
 
 export function ValidationView({ components: _components, onValidationComplete }: ValidationViewProps) {
   const { sessionId, setCurrentStage, refreshTrigger } = useSession();
@@ -372,13 +380,10 @@ export function ValidationView({ components: _components, onValidationComplete }
   const loadData = (sid: string) =>
     getValidationResults(sid)
       .then(result => {
-        if (result.success && result.total_parts > 0) {
+        if (result.success) {
           setData(result);
-        } else {
-          return validateParts(sid, setCurrentStage).then(r => setData(r));
         }
       })
-      .catch(() => validateParts(sid, setCurrentStage).then(r => setData(r)))
       .catch(e => setError(e.message))
       .finally(() => setIsLoading(false));
 
@@ -435,7 +440,7 @@ export function ValidationView({ components: _components, onValidationComplete }
     if (!sessionId || !data) return;
     setIsConfirming(true);
     try {
-      await validateParts(sessionId, setCurrentStage);
+      await confirmPartReview(sessionId, setCurrentStage);
       const components: Component[] = data.validation_results.map((r, i) => ({
         id: `comp-${r.mpn}-${i}`,
         reference: r.mpn,
@@ -461,7 +466,7 @@ export function ValidationView({ components: _components, onValidationComplete }
       <div className="h-full flex items-center justify-center">
         <div className="text-center space-y-3">
           <div className="h-10 w-10 rounded-full border-2 border-blue-500 border-t-transparent animate-spin mx-auto" />
-          <p className="text-sm text-gray-500">Loading part review…</p>
+          <p className="text-sm text-gray-500">Loading part review...</p>
         </div>
       </div>
     );
@@ -489,7 +494,7 @@ export function ValidationView({ components: _components, onValidationComplete }
       <div className="shrink-0 px-6 py-4 bg-white border-b">
         <h1 className="text-lg font-semibold text-gray-900">Part Review</h1>
         <p className="text-sm text-gray-500 mt-0.5">
-          Click any part to inspect specs · Review before generating requirements
+          Click any part to inspect specs - Review enrichment before requirements
         </p>
       </div>
 
@@ -497,15 +502,15 @@ export function ValidationView({ components: _components, onValidationComplete }
       <div className="shrink-0 px-6 py-4 grid grid-cols-4 gap-3">
         <div className="rounded-lg border border-gray-200 bg-white p-4 text-center">
           <div className="text-3xl font-bold text-gray-900">{data.total_parts}</div>
-          <div className="text-xs text-gray-500 mt-1">Fundamental Parts</div>
+          <div className="text-xs text-gray-500 mt-1">Non-Aux Parts</div>
         </div>
         <div className="rounded-lg border border-green-200 bg-green-50 p-4 text-center">
           <div className="text-3xl font-bold text-green-600">{confirmed}</div>
-          <div className="text-xs text-gray-600 mt-1">Confirmed</div>
+          <div className="text-xs text-gray-600 mt-1">Model Ready</div>
         </div>
         <div className="rounded-lg border border-amber-200 bg-amber-50 p-4 text-center">
           <div className="text-3xl font-bold text-amber-600">{unresolved}</div>
-          <div className="text-xs text-gray-600 mt-1">No Nexar Data</div>
+          <div className="text-xs text-gray-600 mt-1">Needs Attention</div>
         </div>
         <div className="rounded-lg border border-blue-200 bg-blue-50 p-4 text-center">
           <div className="text-3xl font-bold text-blue-600">{data.auxiliary_parts_skipped}</div>
@@ -519,7 +524,7 @@ export function ValidationView({ components: _components, onValidationComplete }
           <Search className="absolute left-3 top-1/2 -translate-y-1/2 h-4 w-4 text-gray-400" />
           <input
             type="text"
-            placeholder="Search parts…"
+            placeholder="Search parts..."
             value={searchQuery}
             onChange={e => setSearchQuery(e.target.value)}
             className="w-full pl-9 pr-8 py-2 text-sm rounded-lg border border-gray-200 focus:outline-none focus:border-blue-400"
@@ -541,7 +546,7 @@ export function ValidationView({ components: _components, onValidationComplete }
                   : 'bg-white border border-gray-200 text-gray-600 hover:bg-gray-50'
               }`}
             >
-              {f === 'all' ? `All (${data.total_parts})` : f === 'confirmed' ? `Confirmed (${confirmed})` : `No data (${unresolved})`}
+              {f === 'all' ? `All (${data.total_parts})` : f === 'confirmed' ? `Ready (${confirmed})` : `Needs attention (${unresolved})`}
             </button>
           ))}
         </div>
@@ -572,7 +577,7 @@ export function ValidationView({ components: _components, onValidationComplete }
         {unresolved > 0 && (
           <p className="text-xs text-amber-700 mb-3 flex items-center gap-1.5">
             <AlertCircle className="h-3.5 w-3.5 shrink-0" />
-            {unresolved} part{unresolved !== 1 ? 's' : ''} without Nexar data — they'll be treated as unknown in requirements generation.
+            {unresolved} part{unresolved !== 1 ? 's' : ''} need attention before architecture generation.
           </p>
         )}
         <button
@@ -581,9 +586,9 @@ export function ValidationView({ components: _components, onValidationComplete }
           className="w-full rounded-xl bg-blue-600 py-3 text-white font-semibold hover:bg-blue-700 disabled:opacity-50 flex items-center justify-center gap-2 transition-all"
         >
           {isConfirming ? (
-            <><div className="h-4 w-4 border-2 border-white/30 border-t-white rounded-full animate-spin" /> Confirming…</>
+            <><div className="h-4 w-4 border-2 border-white/30 border-t-white rounded-full animate-spin" /> Confirming...</>
           ) : (
-            <><Zap className="h-4 w-4" /> Confirm Parts & Generate Requirements <ArrowRight className="h-4 w-4" /></>
+            <><Zap className="h-4 w-4" /> Confirm Parts & Continue <ArrowRight className="h-4 w-4" /></>
           )}
         </button>
       </div>

@@ -1,5 +1,4 @@
-import { useState, useEffect, useRef, useReducer } from 'react';
-import { useNavigate } from 'react-router-dom';
+import { useState, useEffect, useRef, useReducer, useCallback } from 'react';
 import {
   CheckCircle, Loader2, Database, AlertCircle,
   ArrowRight, Cpu, AlertTriangle, Link, RefreshCw, XCircle,
@@ -7,6 +6,7 @@ import {
 import { motion } from 'motion/react';
 import { toast } from 'sonner';
 import { useSession } from '@/app/context/SessionContext';
+import { useWorkflowNavigation } from '@/app/shared/hooks/useWorkflowNavigation';
 import {
   triggerModelEnrichment,
   getModelEnrichmentStatus,
@@ -27,6 +27,14 @@ function formatElapsed(ms: number): string {
   const mins = Math.floor(totalSeconds / 60);
   const secs = totalSeconds % 60;
   return mins > 0 ? `${mins}m ${secs}s` : `${secs}s`;
+}
+
+function needsAutomaticEnrichmentAttempt(status: ModelEnrichmentStatus): boolean {
+  return status.parts.some(part => {
+    if (part.status === 'extracting') return true;
+    if (part.status !== 'no_datasheet') return false;
+    return part.datasheet_source !== 'not_found';
+  });
 }
 
 // ── Per-part card ─────────────────────────────────────────────────────────────
@@ -212,8 +220,8 @@ function PartCard({
 // ── Main view ─────────────────────────────────────────────────────────────────
 
 export function EnrichmentView() {
-  const navigate = useNavigate();
   const { sessionId } = useSession();
+  const { navigateToStage, unlockStage } = useWorkflowNavigation();
   const [status, setStatus] = useState<ModelEnrichmentStatus | null>(null);
   const [error, setError] = useState<string | null>(null);
   const [modelDrawerMpn, setModelDrawerMpn] = useState<string | null>(null);
@@ -231,9 +239,13 @@ export function EnrichmentView() {
   // Tracks when each MPN was first seen in "extracting" state.
   // Stored in a ref to avoid triggering re-renders on update.
   const firstSeenExtractingAt = useRef<Record<string, number>>({});
+  const initStartedRef = useRef(false);
 
   // Incremented every second while any part is extracting — forces elapsed time to update.
   const [, tick] = useReducer((n: number) => n + 1, 0);
+  const markEnrichmentComplete = useCallback(() => {
+    unlockStage('validate');
+  }, [unlockStage]);
 
   // Keep firstSeenExtractingAt in sync with each status update.
   useEffect(() => {
@@ -266,12 +278,15 @@ export function EnrichmentView() {
 
   useEffect(() => {
     if (!sessionId) return;
+    let cancelled = false;
 
     const fetchStatus = async () => {
       try {
         const s = await getModelEnrichmentStatus(sessionId);
+        if (cancelled) return;
         setStatus(s);
         if (s.complete) {
+          markEnrichmentComplete();
           if (guaranteedPollsRef.current > 0) {
             guaranteedPollsRef.current -= 1;
           } else {
@@ -279,6 +294,7 @@ export function EnrichmentView() {
           }
         }
       } catch {
+        if (cancelled) return;
         setError('Failed to fetch enrichment status.');
         stopPolling();
       }
@@ -286,21 +302,45 @@ export function EnrichmentView() {
 
     const init = async () => {
       try {
-        await triggerModelEnrichment(sessionId);
         const initial = await getModelEnrichmentStatus(sessionId);
+        if (cancelled) return;
         setStatus(initial);
-        if (!initial.complete) {
+        const needsAttempt = needsAutomaticEnrichmentAttempt(initial);
+
+        if (initial.complete && !needsAttempt) {
+          markEnrichmentComplete();
+          stopPolling();
+          return;
+        }
+
+        if (!initStartedRef.current && needsAttempt) {
+          initStartedRef.current = true;
+          await triggerModelEnrichment(sessionId);
+          const started = await getModelEnrichmentStatus(sessionId);
+          if (cancelled) return;
+          setStatus(started);
+        }
+
+        if (!pollingRef.current) {
           pollingRef.current = setInterval(fetchStatus, 4000);
         }
-      } catch {
-        toast.error('Failed to start enrichment.');
-        setError('Failed to start enrichment.');
+      } catch (error) {
+        if (cancelled) return;
+        const rawMessage = error instanceof Error ? error.message : 'Failed to start enrichment.';
+        const message = rawMessage.includes('409')
+          ? 'Enrichment has already completed. Continue to Part Review.'
+          : rawMessage;
+        toast.error(message);
+        setError(message);
       }
     };
 
     init();
-    return () => stopPolling();
-  }, [sessionId]);
+    return () => {
+      cancelled = true;
+      stopPolling();
+    };
+  }, [sessionId, markEnrichmentComplete]);
 
   const toggleEditing = (mpn: string) => {
     setEditingMpns(prev => {
@@ -381,12 +421,18 @@ export function EnrichmentView() {
         return {
           ...prev,
           extracting: prev.extracting + 1,
-          no_datasheet: wasFailed ? prev.no_datasheet : prev.no_datasheet - 1,
-          failed: wasFailed ? (prev.failed ?? 1) - 1 : prev.failed ?? 0,
+          no_datasheet: wasFailed ? prev.no_datasheet : Math.max(0, prev.no_datasheet - 1),
+          failed: wasFailed ? Math.max(0, (prev.failed ?? 0) - 1) : prev.failed ?? 0,
           complete: false,
           parts: prev.parts.map(p =>
             p.mpn === mpn
-              ? { ...p, status: 'extracting' as PartEnrichmentState, failure_reason: null }
+              ? {
+                  ...p,
+                  status: 'extracting' as PartEnrichmentState,
+                  datasheet_url: url,
+                  datasheet_source: 'user',
+                  failure_reason: null,
+                }
               : p
           ),
         };
@@ -399,6 +445,10 @@ export function EnrichmentView() {
     } finally {
       setSubmittingMpns(prev => { const n = new Set(prev); n.delete(mpn); return n; });
     }
+  };
+
+  const handleContinue = () => {
+    navigateToStage('validate');
   };
 
   if (!sessionId) {
@@ -547,7 +597,7 @@ export function EnrichmentView() {
           className="flex justify-end"
         >
           <button
-            onClick={() => navigate('/validate')}
+            onClick={handleContinue}
             className="flex items-center gap-2 bg-blue-500 text-white rounded-lg px-6 py-3 font-medium hover:bg-blue-600 transition-colors shadow-sm"
           >
             Continue to Part Review

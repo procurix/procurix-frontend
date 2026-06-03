@@ -1,4 +1,4 @@
-import { memo } from 'react';
+import { createElement, memo } from 'react';
 import { Handle, Position } from '@xyflow/react';
 import type { Component } from '@/app/types';
 import { getComponentIcon, getTypeColor, getTypeBorderColor } from './shapeUtils';
@@ -14,9 +14,9 @@ interface SquareNodeProps {
 }
 
 export const SquareNode = memo(({ data, selected }: SquareNodeProps) => {
-  const Icon = getComponentIcon(data.type);
   const gradientClass = getTypeColor(data.type);
   const borderColor = getTypeBorderColor(data.type, selected || false);
+  const icon = createElement(getComponentIcon(data.type), { className: 'h-4 w-4 text-white' });
 
   return (
     <div className="relative">
@@ -79,7 +79,7 @@ export const SquareNode = memo(({ data, selected }: SquareNodeProps) => {
         <div className="absolute inset-0 flex flex-col items-center justify-center p-3">
           {/* Header with Icon */}
           <div className={`flex items-center gap-2 mb-2 p-2 rounded-lg bg-gradient-to-r ${gradientClass} w-full justify-center`}>
-            <Icon className="h-4 w-4 text-white" />
+            {icon}
             <div className="text-xs font-bold text-white truncate max-w-[100px]">
               {data.reference}
             </div>

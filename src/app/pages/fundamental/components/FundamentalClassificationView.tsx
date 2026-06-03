@@ -1,6 +1,6 @@
 import { useState, useEffect, useRef } from 'react';
 import type { Component } from '@/app/types';
-import type { PartDetail, PartCandidate } from '@/app/services/api';
+import type { PartDetail } from '@/app/services/api';
 import { CheckCircle, Cpu, Zap, AlertCircle, Loader2, Search, X, ArrowRight, RotateCcw, ExternalLink, ChevronDown, RefreshCw, MessageSquare, Database } from 'lucide-react';
 import { motion, AnimatePresence } from 'motion/react';
 import { toast } from 'sonner';
@@ -74,10 +74,9 @@ function srcBadge(source: string | undefined | null) {
 
 // ── Phase 1: Research terminal ─────────────────────────────────────────────────
 
-function ResearchPhase({ sessionId, onComplete, setCurrentStage }: {
+function ResearchPhase({ sessionId, onComplete }: {
   sessionId: string;
   onComplete: (result: PartDetail[], needsAction: PartEnrichmentResult[]) => void;
-  setCurrentStage: (s: number | null) => void;
 }) {
   const [lines, setLines] = useState<StreamLine[]>([]);
   const [total, setTotal] = useState(0);
@@ -959,11 +958,10 @@ export function FundamentalClassificationView({
   onClassificationComplete,
   forceClassifyPhase = false,
 }: FundamentalClassificationViewProps) {
-  const { sessionId, setCurrentStage, refreshTrigger } = useSession();
+  const { sessionId, refreshTrigger } = useSession();
   const [phase, setPhase] = useState<Phase>(forceClassifyPhase ? 'classify' : 'research');
   const [enrichedParts, setEnrichedParts] = useState<PartDetail[]>([]);
   const [pendingAction, setPendingAction] = useState<PartEnrichmentResult[]>([]);
-  const [error, setError] = useState<string | null>(null);
   // When forceClassifyPhase, don't render ClassifyPhase until data is loaded
   const [loading, setLoading] = useState(forceClassifyPhase);
 
@@ -1038,7 +1036,6 @@ export function FundamentalClassificationView({
     return (
       <ResearchPhase
         sessionId={sessionId}
-        setCurrentStage={setCurrentStage}
         onComplete={(parts, needsAction) => {
           setEnrichedParts(parts);
           setPendingAction(needsAction);

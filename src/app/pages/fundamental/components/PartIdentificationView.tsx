@@ -7,7 +7,7 @@
  */
 
 import { useState, useEffect, useRef } from 'react';
-import type { PartCandidate, WebCandidate } from '@/app/services/api';
+import type { DesignPart, PartCandidate, PartIdentificationResolution, PartSpecEvidence, WebCandidate } from '@/app/services/api';
 import {
   CheckCircle,
   ChevronDown,
@@ -26,12 +26,13 @@ import { toast } from 'sonner';
 import { useSession } from '@/app/context/SessionContext';
 import {
   identifyPartsStream,
-  selectPartMatch,
-  confirmWebPart,
+  confirmPartIdentificationReview,
   saveCustomPart,
-  renamePart,
   suggestPartFields,
   nexarRefreshPart,
+  getParts,
+  getPartSpecs,
+  getCurrentStage,
 } from '@/app/services/api';
 
 // ── Types ─────────────────────────────────────────────────────────────────────
@@ -50,9 +51,12 @@ interface IdentifiedPart {
   mpn: string;
   status: 'exact_match';
   category?: string | null;
+  manufacturer?: string | null;
   description?: string | null;
   datasheet_url?: string | null;
   product_url?: string | null;
+  part_function?: string | null;
+  topology_family?: string | null;
   source?: string;
   confidence?: string;
   candidates?: PartCandidate[];
@@ -69,11 +73,162 @@ interface ActionPart {
   webCandidates?: WebCandidate[];
 }
 
+type WebSelection =
+  | { kind: 'pending' }
+  | { kind: 'candidate'; index: number }
+  | { kind: 'manual' };
+
+const PENDING_WEB_SELECTION: WebSelection = { kind: 'pending' };
+
 export interface PartIdentificationViewProps {
   onComplete: () => void;
 }
 
+const IDENTIFIED_REVIEW_STATUSES = new Set([
+  'identified',
+  'web_confirmed',
+  'custom',
+  'user_provided',
+]);
+
 // ── Helpers ───────────────────────────────────────────────────────────────────
+
+function asString(value: unknown): string | undefined {
+  return typeof value === 'string' && value.trim() ? value.trim() : undefined;
+}
+
+function asNullableString(value: unknown): string | null | undefined {
+  return typeof value === 'string' ? value : undefined;
+}
+
+function formatSpecValue(value: unknown): string | undefined {
+  if (value === null || value === undefined || value === '') return undefined;
+  if (typeof value === 'string') return value.trim() || undefined;
+  if (typeof value === 'number' || typeof value === 'boolean') return String(value);
+  if (Array.isArray(value)) {
+    const values = value.map(formatSpecValue).filter(Boolean);
+    return values.length ? values.join(', ') : undefined;
+  }
+  if (typeof value === 'object') {
+    const entries = Object.entries(value as Record<string, unknown>)
+      .map(([key, spec]) => {
+        const formatted = formatSpecValue(spec);
+        return formatted ? `${key}: ${formatted}` : undefined;
+      })
+      .filter(Boolean);
+    return entries.length ? entries.join('; ') : undefined;
+  }
+  return undefined;
+}
+
+function normalizeParams(value: unknown): Record<string, string> | undefined {
+  if (!value || typeof value !== 'object' || Array.isArray(value)) return undefined;
+
+  const params = Object.entries(value as Record<string, unknown>).reduce<Record<string, string>>((acc, [key, spec]) => {
+    const formatted = formatSpecValue(spec);
+    if (formatted) acc[key] = formatted;
+    return acc;
+  }, {});
+
+  return Object.keys(params).length ? params : undefined;
+}
+
+function humanizeSpecKey(key: string): string {
+  return key
+    .replace(/[_-]+/g, ' ')
+    .replace(/([a-z])([A-Z])/g, '$1 $2')
+    .replace(/\s+/g, ' ')
+    .trim();
+}
+
+function technicalSpecEntries(part: IdentifiedPart): Array<{ key: string; label: string; value: string }> {
+  return Object.entries(part.params ?? {})
+    .filter(([, value]) => Boolean(value))
+    .map(([key, value]) => ({
+      key,
+      label: humanizeSpecKey(key),
+      value,
+    }));
+}
+
+function sourceForSavedPart(status: string, spec?: PartSpecEvidence): string {
+  const source = asString(spec?.source);
+  if (source) return source;
+  if (status === 'identified') return 'catalog';
+  return status;
+}
+
+function savedPartKey(part: DesignPart): string | null {
+  return part.selected_mpn || part.mpn;
+}
+
+function buildSavedReviewState(parts: DesignPart[], specsByMpn: Record<string, PartSpecEvidence> = {}): {
+  hasSavedIdentification: boolean;
+  identified: IdentifiedPart[];
+  needsAction: ActionPart[];
+} {
+  const identifiedByMpn = new Map<string, IdentifiedPart>();
+  const actionByMpn = new Map<string, ActionPart>();
+
+  for (const part of parts) {
+    const mpn = savedPartKey(part);
+    if (!mpn) continue;
+
+    const status = part.identification_status;
+    if (status === 'web_unresolved') {
+      actionByMpn.set(mpn, {
+        mpn,
+        status: 'web_found',
+        source: 'web',
+        webCandidates: Array.isArray(part.suggestions_json)
+          ? (part.suggestions_json as WebCandidate[])
+          : [],
+      });
+      continue;
+    }
+
+    if (status === 'not_found') {
+      actionByMpn.set(mpn, { mpn, status: 'not_found' });
+      continue;
+    }
+
+    if (status && IDENTIFIED_REVIEW_STATUSES.has(status) && !identifiedByMpn.has(mpn)) {
+      const spec = specsByMpn[mpn] || specsByMpn[part.mpn || ''] || specsByMpn[part.selected_mpn || ''];
+      identifiedByMpn.set(mpn, {
+        mpn,
+        status: 'exact_match',
+        category: asNullableString(spec?.Category) ?? part.category,
+        manufacturer: asNullableString(spec?.manufacturer) ?? part.manufacturer,
+        description: asNullableString(spec?.Description),
+        datasheet_url: asNullableString(spec?.datasheet_url),
+        product_url: asNullableString(spec?.product_url),
+        part_function: asNullableString(spec?.part_function),
+        topology_family: asNullableString(spec?.topology_family),
+        params: normalizeParams(spec?.params),
+        source: sourceForSavedPart(status, spec),
+        confidence: typeof spec?.confidence === 'number' ? String(spec.confidence) : undefined,
+      });
+    }
+  }
+
+  return {
+    hasSavedIdentification: identifiedByMpn.size > 0 || actionByMpn.size > 0,
+    identified: [...identifiedByMpn.values()],
+    needsAction: [...actionByMpn.values()],
+  };
+}
+
+async function loadSavedReviewState(sessionId: string): Promise<{
+  hasSavedIdentification: boolean;
+  identified: IdentifiedPart[];
+  needsAction: ActionPart[];
+}> {
+  const [parts, specs] = await Promise.all([
+    getParts(sessionId),
+    getPartSpecs(sessionId).catch(() => ({} as Record<string, PartSpecEvidence>)),
+  ]);
+  return buildSavedReviewState(parts, specs);
+}
 
 function srcBadge(source: string | undefined | null) {
   if (!source || source === 'unknown') return null;
@@ -86,12 +241,14 @@ function srcBadge(source: string | undefined | null) {
     web_broad: 'bg-orange-50 text-orange-600 border-orange-200',
     web_confirmed: 'bg-teal-50 text-teal-600 border-teal-200',
     user_provided: 'bg-green-50 text-green-700 border-green-300',
+    catalog: 'bg-gray-50 text-gray-500 border-gray-200',
   };
   const label: Record<string, string> = {
     nexar: 'nexar', nexar_confirmed: 'confirmed',
     cache: 'cached', cache_hit: 'cached',
     web: 'web', web_broad: 'ai search', web_confirmed: 'web ✓', user_provided: 'manual',
   };
+  label.catalog = 'catalog';
   const cls = styles[source] ?? styles.cache;
   return (
     <span className={`inline-block border text-[10px] font-medium px-1.5 py-0.5 rounded ${cls}`}>
@@ -190,6 +347,7 @@ function ResearchPhase({
   const startedRef = useRef(false);
   const identifiedRef = useRef<IdentifiedPart[]>([]);
   const needsActionRef = useRef<ActionPart[]>([]);
+  const lastEventAtRef = useRef(Date.now());
 
   const push = (line: StreamLine) => setLines(prev => [...prev, line]);
   const replace = (id: string, update: Partial<StreamLine>) =>
@@ -203,9 +361,16 @@ function ResearchPhase({
     if (startedRef.current) return;
     startedRef.current = true;
 
+    const staleTimer = window.setInterval(() => {
+      if (!done && Date.now() - lastEventAtRef.current > 45_000) {
+        setError('Part identification appears stalled. Check backend logs or retry failed parts.');
+      }
+    }, 10_000);
+
     identifyPartsStream(
       sessionId,
       (event) => {
+        lastEventAtRef.current = Date.now();
         if (event.type === 'start') {
           setTotal(event.total);
           push({ id: 'start', icon: 'check', text: `Identifying ${event.total} distinct parts…` });
@@ -225,7 +390,7 @@ function ResearchPhase({
             description: event.description,
             datasheet_url: event.datasheet_url,
             product_url: event.product_url,
-            params: event.params ?? undefined,
+            params: normalizeParams(event.params),
             source: event.source,
           });
         } else if (event.type === 'web_found') {
@@ -250,16 +415,35 @@ function ResearchPhase({
             text: `Done — ${event.identified}/${event.total} identified`,
           });
           setDone(true);
-          setTimeout(
-            () => onComplete(identifiedRef.current, needsActionRef.current),
-            600,
-          );
+          window.clearInterval(staleTimer);
+          if (event.status === 'failed') {
+            setError('No parts were identified. Check the BOM column mapping and upload a corrected file.');
+            return;
+          }
+          setTimeout(() => {
+            void loadSavedReviewState(sessionId)
+              .then(saved => {
+                if (saved.hasSavedIdentification) {
+                  onComplete(saved.identified, saved.needsAction);
+                  return;
+                }
+                onComplete(identifiedRef.current, needsActionRef.current);
+              })
+              .catch(() => onComplete(identifiedRef.current, needsActionRef.current));
+          }, 600);
         } else if (event.type === 'error') {
+          window.clearInterval(staleTimer);
           setError(event.message);
         }
       },
       setCurrentStage,
-    ).catch(e => setError(String(e)));
+    ).catch(e => {
+      window.clearInterval(staleTimer);
+      setError(String(e));
+    });
+    return () => window.clearInterval(staleTimer);
+  // The stream is intentionally one-shot per mounted review session.
+  // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
 
   const iconEl = (icon: StreamLine['icon']) => {
@@ -353,9 +537,9 @@ function ReviewPhase({
   const [identifiedOverrides, setIdentifiedOverrides] = useState<Record<string, number>>({});
 
   // ── Web-found state — track which candidate index was picked ──
-  const [webSel, setWebSel] = useState<Record<string, number | 'skipped' | null>>(() =>
+  const [webSel, setWebSel] = useState<Record<string, WebSelection>>(() =>
     Object.fromEntries(
-      needsAction.filter(a => a.status === 'web_found').map(a => [a.mpn, null])
+      needsAction.filter(a => a.status === 'web_found').map(a => [a.mpn, PENDING_WEB_SELECTION])
     )
   );
 
@@ -390,7 +574,7 @@ function ReviewPhase({
           description: updated.description ?? undefined,
           datasheet_url: updated.datasheet_url ?? undefined,
           source: updated.source,
-          params: updated.params ?? undefined,
+          params: normalizeParams(updated.params),
         },
       }));
       // Clear any manual candidate override — fresh Nexar data supersedes it
@@ -410,7 +594,7 @@ function ReviewPhase({
   const webFound = needsAction.filter(a => a.status === 'web_found');
   const notFound = needsAction.filter(a => a.status === 'not_found');
 
-  const webPending = webFound.filter(a => webSel[a.mpn] === null).length;
+  const webPending = webFound.filter(a => (webSel[a.mpn] ?? PENDING_WEB_SELECTION).kind === 'pending').length;
   const canProceed = webPending === 0;
 
   const loadSuggestedFields = async (mpn: string) => {
@@ -432,47 +616,92 @@ function ReviewPhase({
     if (!sessionId || !canProceed) return;
     setSaving(true);
     try {
+      const resolutions: PartIdentificationResolution[] = [];
+      const customParams = (form: CustomFields) =>
+        Object.fromEntries(Object.entries(form.extraFields).filter(([, value]) => value));
+      const hasCustomData = (form: CustomFields) => Boolean(
+        form.description ||
+        form.manufacturer ||
+        form.category ||
+        form.datasheet_url ||
+        Object.values(form.extraFields).some(Boolean)
+      );
       // Save identified-part overrides (if user picked a different candidate)
       for (const p of identified) {
         const overrideIdx = identifiedOverrides[p.mpn];
         if (overrideIdx !== undefined && overrideIdx !== 0 && p.candidates?.[overrideIdx]) {
-          await selectPartMatch(sessionId, p.mpn, p.candidates[overrideIdx]);
+          const candidate = p.candidates[overrideIdx];
+          resolutions.push({
+            original_mpn: p.mpn,
+            action: 'select_match',
+            selected_mpn: candidate.mpn,
+            manufacturer: candidate.manufacturer ?? null,
+            category: candidate.category ?? null,
+            description: candidate.description ?? null,
+            datasheet_url: candidate.datasheet_url ?? null,
+            product_url: candidate.product_url ?? null,
+            source: 'nexar',
+          });
         }
       }
       // Save web-found confirmations — user picked a specific candidate index
       for (const a of webFound) {
         const sel = webSel[a.mpn];
-        if (typeof sel === 'number') {
-          const cand = a.webCandidates?.[sel];
+        if (sel?.kind === 'candidate') {
+          const cand = a.webCandidates?.[sel.index];
           if (cand) {
-            await confirmWebPart(sessionId, a.mpn, cand.product_url ?? null, cand.datasheet_url ?? null, cand.description ?? null);
+            resolutions.push({
+              original_mpn: a.mpn,
+              action: 'web_confirm',
+              selected_mpn: cand.mpn || a.mpn,
+              manufacturer: cand.manufacturer ?? null,
+              category: cand.category ?? null,
+              description: cand.description ?? null,
+              datasheet_url: cand.datasheet_url ?? null,
+              product_url: cand.product_url ?? null,
+              source: cand.source ?? 'web',
+            });
           }
         }
       }
       // Save custom parts — not_found and skipped web_found
       const partsForCustomSave = [
         ...notFound,
-        ...webFound.filter(a => webSel[a.mpn] === 'skipped'),
+        ...webFound.filter(a => webSel[a.mpn]?.kind === 'manual'),
       ];
       for (const a of partsForCustomSave) {
-        const form = customForms[a.mpn];
-        const hasAny = form.description || form.manufacturer || form.category ||
-          form.datasheetFile || form.datasheet_url ||
-          Object.values(form.extraFields).some(Boolean);
-        if (hasAny) {
+        const form = customForms[a.mpn] ?? emptyForm();
+        if (form.datasheetFile) {
           await saveCustomPart(sessionId, a.mpn, {
             manufacturer: form.manufacturer || undefined,
             description: form.description || undefined,
             category: form.category || undefined,
             datasheet_url: form.datasheet_url || undefined,
-            specs: Object.fromEntries(Object.entries(form.extraFields).filter(([, v]) => v)),
-            datasheetFile: form.datasheetFile ?? undefined,
+            specs: customParams(form),
+            datasheetFile: form.datasheetFile,
           });
+        } else if (hasCustomData(form)) {
+          resolutions.push({
+            original_mpn: a.mpn,
+            action: 'custom',
+            selected_mpn: a.mpn,
+            manufacturer: form.manufacturer || null,
+            description: form.description || null,
+            category: form.category || null,
+            datasheet_url: form.datasheet_url || null,
+            params: customParams(form),
+          });
+        } else {
+          resolutions.push({ original_mpn: a.mpn, action: 'skip' });
         }
       }
+      const result = await confirmPartIdentificationReview(sessionId, resolutions);
+      if (!result.success) {
+        throw new Error(result.failures.map(f => `${f.mpn}: ${f.error}`).join('; ') || 'Part review could not be committed');
+      }
       onComplete();
-    } catch (e: any) {
-      toast.error(e.message);
+    } catch (e: unknown) {
+      toast.error(e instanceof Error ? e.message : String(e));
     } finally {
       setSaving(false);
     }
@@ -523,6 +752,7 @@ function ReviewPhase({
                 const hasAlts = (p.candidates?.length ?? 0) > 1;
                 // Merge any in-session Nexar refresh over the original stream data
                 const ep = { ...p, ...(refreshedParts[p.mpn] ?? {}) };
+                const specEntries = technicalSpecEntries(ep);
 
                 return (
                   <div
@@ -561,6 +791,11 @@ function ReviewPhase({
                               changed
                             </span>
                           )}
+                          {specEntries.length > 0 && (
+                            <span className="text-[10px] text-slate-600 bg-slate-50 border border-slate-200 px-1.5 py-0.5 rounded-full">
+                              {specEntries.length} specs
+                            </span>
+                          )}
                           {isOpen
                             ? <ChevronDown className="h-4 w-4 text-gray-400" />
                             : <ChevronRight className="h-4 w-4 text-gray-400" />
@@ -585,21 +820,66 @@ function ReviewPhase({
                     {/* Expanded: show specs + candidates to pick */}
                     {isOpen && (
                       <div className="px-4 pb-4 pt-1 border-t border-gray-100">
-                        {ep.params && Object.values(ep.params).some(Boolean) && (
+                        {(ep.description || ep.manufacturer || ep.category || ep.part_function || ep.topology_family) && (
                           <div className="mb-3">
-                            <div className="text-[10px] text-gray-400 uppercase tracking-wide font-semibold mb-1.5">Technical Specifications</div>
-                            <div className="grid grid-cols-2 gap-1">
-                              {Object.entries(ep.params).filter(([, v]) => v).map(([key, spec]) => (
-                                <div key={key} className="flex items-center justify-between bg-gray-50 rounded px-2 py-1">
-                                  <span className="text-[11px] text-gray-500 truncate mr-2">{key}</span>
-                                  <span className="text-[11px] font-semibold text-gray-800 shrink-0">
-                                    {spec || '—'}
+                            <div className="text-[10px] text-gray-400 uppercase tracking-wide font-semibold mb-1.5">Part Details</div>
+                            <div className="space-y-1 rounded-lg bg-gray-50 px-3 py-2">
+                              {ep.description && (
+                                <div className="text-xs text-gray-700">{ep.description}</div>
+                              )}
+                              <div className="flex flex-wrap gap-1.5">
+                                {ep.manufacturer && (
+                                  <span className="rounded border border-gray-200 bg-white px-2 py-0.5 text-[11px] text-gray-600">
+                                    {ep.manufacturer}
                                   </span>
-                                </div>
-                              ))}
+                                )}
+                                {ep.category && (
+                                  <span className="rounded border border-gray-200 bg-white px-2 py-0.5 text-[11px] text-gray-600">
+                                    {ep.category}
+                                  </span>
+                                )}
+                                {ep.part_function && (
+                                  <span className="rounded border border-blue-100 bg-blue-50 px-2 py-0.5 text-[11px] text-blue-700">
+                                    {ep.part_function}
+                                  </span>
+                                )}
+                                {ep.topology_family && (
+                                  <span className="rounded border border-purple-100 bg-purple-50 px-2 py-0.5 text-[11px] text-purple-700">
+                                    {ep.topology_family}
+                                  </span>
+                                )}
+                              </div>
                             </div>
                           </div>
                         )}
+                        <div className="mb-3">
+                          <div className="flex items-center justify-between mb-1.5">
+                            <div className="text-[10px] text-gray-400 uppercase tracking-wide font-semibold">
+                              Technical Specs From Identification
+                            </div>
+                            {ep.source && (
+                              <span className="text-[10px] text-gray-400">source: {ep.source}</span>
+                            )}
+                          </div>
+                          {specEntries.length > 0 ? (
+                            <div className="grid grid-cols-1 md:grid-cols-2 gap-1.5">
+                              {specEntries.map(({ key, label, value }) => (
+                                <div key={key} className="min-w-0 rounded-lg border border-gray-100 bg-gray-50 px-2.5 py-1.5">
+                                  <div className="text-[10px] font-medium uppercase tracking-wide text-gray-400 truncate">
+                                    {label}
+                                  </div>
+                                  <div className="mt-0.5 text-[11px] font-semibold text-gray-800 break-words">
+                                    {value}
+                                  </div>
+                                </div>
+                              ))}
+                            </div>
+                          ) : (
+                            <div className="rounded-lg border border-dashed border-gray-200 bg-gray-50 px-3 py-2 text-xs text-gray-500">
+                              No structured technical specs were returned by identification for this part yet.
+                            </div>
+                          )}
+                        </div>
                         {hasAlts ? (
                           <div className="space-y-1.5">
                             <p className="text-xs text-gray-500 mb-2">Select the correct match:</p>
@@ -689,7 +969,8 @@ function ReviewPhase({
             </h3>
             <div className="space-y-4">
               {webFound.map(a => {
-                const skipped = webSel[a.mpn] === 'skipped';
+                const selection = webSel[a.mpn] ?? PENDING_WEB_SELECTION;
+                const skipped = selection.kind === 'manual';
                 const form = customForms[a.mpn];
                 return (
                   <div key={a.mpn} className="bg-white border border-purple-200 rounded-xl p-4 shadow-sm">
@@ -703,7 +984,7 @@ function ReviewPhase({
                       <button
                         onClick={() => setWebSel(prev => ({
                           ...prev,
-                          [a.mpn]: skipped ? null : 'skipped',
+                          [a.mpn]: skipped ? PENDING_WEB_SELECTION : { kind: 'manual' },
                         }))}
                         className={`text-xs px-2.5 py-1 rounded-lg font-medium transition-all ${
                           skipped
@@ -721,9 +1002,9 @@ function ReviewPhase({
                         {(a.webCandidates ?? []).map((c, i) => (
                           <button
                             key={`${c.mpn}-${i}`}
-                            onClick={() => setWebSel(prev => ({ ...prev, [a.mpn]: i }))}
+                            onClick={() => setWebSel(prev => ({ ...prev, [a.mpn]: { kind: 'candidate', index: i } }))}
                             className={`w-full text-left rounded-lg border px-3 py-2.5 transition-all ${
-                              webSel[a.mpn] === i
+                              selection.kind === 'candidate' && selection.index === i
                                 ? 'border-purple-500 bg-purple-50'
                                 : 'border-gray-200 hover:border-purple-300'
                             }`}
@@ -752,7 +1033,7 @@ function ReviewPhase({
                                 <span className="text-[10px] text-purple-600 bg-purple-50 border border-purple-200 px-1.5 py-0.5 rounded">
                                   {Math.round(c.confidence * 100)}%
                                 </span>
-                                {webSel[a.mpn] === i && <CheckCircle className="h-3.5 w-3.5 text-purple-500" />}
+                                {selection.kind === 'candidate' && selection.index === i && <CheckCircle className="h-3.5 w-3.5 text-purple-500" />}
                               </div>
                             </div>
                           </button>
@@ -926,13 +1207,54 @@ export function PartIdentificationView({ onComplete }: PartIdentificationViewPro
   const [phase, setPhase] = useState<'research' | 'review'>('research');
   const [identified, setIdentified] = useState<IdentifiedPart[]>([]);
   const [needsAction, setNeedsAction] = useState<ActionPart[]>([]);
-  // No skip-on-mount: always run the stream (backend serves cached results if already
-  // identified). This lets users navigate back and review parts again.
+  const [checkedSessionId, setCheckedSessionId] = useState<string | null>(null);
+  const checkingCompletion = Boolean(sessionId && checkedSessionId !== sessionId);
+
+  useEffect(() => {
+    if (!sessionId) return;
+
+    let isCurrent = true;
+
+    getCurrentStage(sessionId)
+      .then(async ({ current_stage }) => {
+        if (!isCurrent) return;
+        setCurrentStage(current_stage);
+        const saved = await loadSavedReviewState(sessionId);
+        if (!isCurrent) return;
+        if (saved.hasSavedIdentification) {
+          setIdentified(saved.identified);
+          setNeedsAction(saved.needsAction);
+          setPhase('review');
+          setCheckedSessionId(sessionId);
+          return;
+        }
+        if (current_stage >= 3) {
+          onComplete();
+          return;
+        }
+        setCheckedSessionId(sessionId);
+      })
+      .catch(() => {
+        if (isCurrent) setCheckedSessionId(sessionId);
+      });
+
+    return () => {
+      isCurrent = false;
+    };
+  }, [sessionId, setCurrentStage, onComplete]);
 
   if (!sessionId) {
     return (
       <div className="h-full flex items-center justify-center">
         <p className="text-gray-500">No session. Please upload a BOM first.</p>
+      </div>
+    );
+  }
+
+  if (checkingCompletion) {
+    return (
+      <div className="h-full flex items-center justify-center">
+        <Loader2 className="h-8 w-8 animate-spin text-blue-500" />
       </div>
     );
   }

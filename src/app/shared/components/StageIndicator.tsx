@@ -1,61 +1,49 @@
 import type { SessionStage } from '@/app/types';
+import type { LucideIcon } from 'lucide-react';
 import { Upload, Zap, FileText, Box, CheckCircle, Layers, Filter, Sparkles, ClipboardCheck, Lock, SlidersHorizontal, Database } from 'lucide-react';
+import { getWorkflowStageStatus, isWorkflowStageComplete, WORKFLOW_STAGES } from '@/app/shared/utils/workflowStages';
 
 interface StageIndicatorProps {
   currentStage: SessionStage;
-  maxReachedStage?: number | null; // The highest stage number reached (from current_stage in BOM)
+  // Backend current_stage means the highest unlocked next step, not the last completed step.
+  maxReachedStage?: number | null;
   onStageClick?: (stage: SessionStage) => void;
 }
 
-const allStages: { id: SessionStage; label: string; icon: any; stageNumber: number }[] = [
-  { id: 'upload', label: 'Upload', icon: Upload, stageNumber: 1 },
-  // { id: 'discovery', label: 'Discovery', icon: Sparkles }, // Commented out
-  { id: 'part-identification', label: 'Part Identification', icon: Filter, stageNumber: 2 },
-  { id: 'system-identification', label: 'System Identification', icon: Sparkles, stageNumber: 3 },
-  { id: 'classification', label: 'Classification', icon: SlidersHorizontal, stageNumber: 4 },
-  { id: 'enrichment', label: 'Enrichment', icon: Database, stageNumber: 5 },
-  { id: 'validate', label: 'Part Review', icon: Zap, stageNumber: 6 },
-  { id: 'requirements', label: 'Requirements', icon: FileText, stageNumber: 7 },
-  { id: 'architecture', label: 'Architecture', icon: Layers, stageNumber: 8 },
-  { id: 'subsystems', label: 'Subsystems', icon: Box, stageNumber: 9 },
-  { id: 'review', label: 'Review', icon: ClipboardCheck, stageNumber: 10 },
-];
+const stageIcons: Partial<Record<SessionStage, LucideIcon>> = {
+  upload: Upload,
+  'part-identification': Filter,
+  'system-identification': Sparkles,
+  classification: SlidersHorizontal,
+  enrichment: Database,
+  validate: Zap,
+  requirements: FileText,
+  architecture: Layers,
+  subsystems: Box,
+  review: ClipboardCheck,
+};
 
-// Filter out commented stages
-const stages = allStages.filter(stage => 
-  stage.id !== 'discovery'
-);
+const stages = WORKFLOW_STAGES.map(stage => ({ ...stage, icon: stageIcons[stage.id] ?? CheckCircle }));
 
 export function StageIndicator({ currentStage, maxReachedStage, onStageClick }: StageIndicatorProps) {
   const currentIndex = stages.findIndex((s) => s.id === currentStage);
-  
-  // If currentStage is not found, default to -1 (no stage available)
   const safeCurrentIndex = currentIndex === -1 ? -1 : currentIndex;
 
   return (
     <div className="flex items-center gap-2 overflow-x-auto pb-2">
       {stages.map((stage, idx) => {
         const Icon = stage.icon;
-        const isActive = stage.id === currentStage;
-        
-        // Determine if stage is completed based on maxReachedStage
-        // A stage is complete if its stageNumber is less than or equal to maxReachedStage
-        const isComplete = maxReachedStage !== null && maxReachedStage !== undefined 
-          ? stage.stageNumber <= maxReachedStage && !isActive
-          : idx < safeCurrentIndex; // Fallback to old logic if maxReachedStage not provided
-        
-        // A stage is available if it's been reached (stageNumber <= maxReachedStage) or is the current stage
-        // BUT: Upload stage (stageNumber 1) is always disabled - users can only go back to Classify (stageNumber 2) and later
-        const baseIsAvailable = maxReachedStage !== null && maxReachedStage !== undefined
-          ? stage.stageNumber <= maxReachedStage || isActive
-          : idx <= safeCurrentIndex; // Fallback to old logic if maxReachedStage not provided
-        
-        // Upload stage is always disabled (stageNumber 1), Classify (stageNumber 2) is the earliest navigable stage
-        const isAvailable = baseIsAvailable && stage.stageNumber >= 2;
-
-        // Special styling for upload stage - always locked/disabled
-        const isUploadStage = stage.id === 'upload';
-        const isLocked = isUploadStage && !isActive; // Upload is locked unless it's the current stage
+        const status = getWorkflowStageStatus({
+          stage,
+          activeStage: currentStage,
+          unlockedStageNumber: maxReachedStage,
+          stageIndex: idx,
+          activeStageIndex: safeCurrentIndex,
+        });
+        const isActive = status === 'active';
+        const isComplete = status === 'complete';
+        const isAvailable = status === 'active' || status === 'complete' || status === 'available';
+        const isLocked = status === 'locked';
 
         return (
           <div key={stage.id} className="flex items-center">
@@ -73,18 +61,24 @@ export function StageIndicator({ currentStage, maxReachedStage, onStageClick }: 
                   ? 'bg-gray-100 text-gray-700 hover:bg-gray-200'
                   : 'bg-gray-50 text-gray-400 cursor-not-allowed'
               }`}
-              title={isLocked ? 'Upload stage is locked - cannot navigate back to it' : undefined}
+              title={
+                isLocked
+                  ? stage.id === 'upload'
+                    ? 'Upload stage is locked after a design is created'
+                    : 'Complete earlier stages to unlock this step'
+                  : undefined
+              }
             >
               <Icon className="h-4 w-4" />
               <span className="whitespace-nowrap">{stage.label}</span>
-              {isLocked && <Lock className="h-3 w-3" />}
+              {isLocked && stage.id === 'upload' && <Lock className="h-3 w-3" />}
               {isComplete && !isLocked && <CheckCircle className="h-4 w-4" />}
             </button>
             {idx < stages.length - 1 && (
               <div
                 className={`h-0.5 w-8 mx-1 ${
                   maxReachedStage !== null && maxReachedStage !== undefined
-                    ? stage.stageNumber < maxReachedStage
+                    ? isWorkflowStageComplete(stage.stageNumber, maxReachedStage)
                       ? 'bg-green-500'
                       : 'bg-gray-300'
                     : idx < safeCurrentIndex

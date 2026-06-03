@@ -303,7 +303,6 @@ function buildContextLayout(
     const col = subIdx % cols;
     const row = Math.floor(subIdx / cols);
 
-    const numCompRows = Math.max(1, Math.ceil(sub.componentIds.length / COMPS_PER_ROW));
     const actualCols = Math.min(sub.componentIds.length, COMPS_PER_ROW);
     const groupWidth = Math.max(420, actualCols * COLS_GAP + GROUP_PADDING * 2);
     const groupHeight = groupHeights[subIdx];

@@ -238,7 +238,7 @@ export function OptimizationPlayground() {
 
   // Sync session ID
   useEffect(() => {
-    const activeSessionId = contextSessionId || querySessionId || sessionIdParam;
+    const activeSessionId = querySessionId || sessionIdParam || contextSessionId;
     if (activeSessionId && activeSessionId !== contextSessionId) {
       setSessionId(activeSessionId);
     }
@@ -259,7 +259,7 @@ export function OptimizationPlayground() {
     }
   };
 
-  const activeSessionId = contextSessionId || querySessionId || sessionIdParam;
+  const activeSessionId = querySessionId || sessionIdParam || contextSessionId;
 
   return (
     <div className="h-screen flex flex-col bg-gradient-to-br from-blue-50 via-white to-purple-50">

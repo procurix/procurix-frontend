@@ -1,230 +1,230 @@
-import { useEffect, useState } from 'react';
+import { useCallback, useEffect, useMemo, useState } from 'react';
 import { useNavigate } from 'react-router-dom';
-import { SubsystemsView } from './components/SubsystemsView';
 import { toast } from 'sonner';
 import { useSession } from '@/app/context/SessionContext';
 import { useQueryParams } from '@/app/shared/hooks/useQueryParams';
-import { getSubsystems, generateSubsystems, getConnections, getRequirementsGET, type Connection, type SubsystemConnection } from '@/app/services/api';
-import type { Component, Subsystem, Requirement } from '@/app/types';
+import {
+  completeSubsystemArchitecture,
+  confirmSubsystem,
+  generateSubsystems,
+  getSubsystemReadiness,
+  getSubsystems,
+  moveSubsystemPart,
+  rejectSubsystem,
+  updateSubsystem,
+  updateSubsystemInterface,
+  type SubsystemConnection,
+  type SubsystemReadinessResponse,
+  type SubsystemSummary,
+} from '@/app/services/api';
+import type { Component, Subsystem } from '@/app/types';
+import { SubsystemsView } from './components/SubsystemsView';
 
-// Derive subsystem-level connections from part-level connections + subsystem membership.
-// Mirrors the backend get_subsystem_connections() logic — client-side so there is no
-// separate API call and no timing dependency on subsystem DB rows being committed.
-function computeSubsystemConnections(
-  connections: Connection[],
-  subsystems: Subsystem[],
-): SubsystemConnection[] {
-  const partToSubsystem = new Map<string, string>();
-  subsystems.forEach((sub) => {
-    sub.componentIds.forEach((mpn) => partToSubsystem.set(mpn, sub.id));
-  });
+function mapSubsystem(row: SubsystemSummary): Subsystem {
+  const partIds = (row.parts || [])
+    .map((part) => part.design_part_id)
+    .filter((partId): partId is string => Boolean(partId));
 
-  type GroupEntry = { types: string[]; count: number };
-  const groups = new Map<string, GroupEntry>();
+  return {
+    ...row,
+    id: row.subsystem_id || row.id,
+    subsystem_id: row.subsystem_id || row.id,
+    name: row.name || 'Subsystem',
+    type: row.type || row.topology_family || row.topology || 'functional',
+    componentIds: partIds.length ? partIds : row.componentIds || row.mpns || row.bom_reference || [],
+    parts: row.parts || [],
+    requirements: row.requirements || [],
+    interfaces: row.interfaces || [],
+    mpns: row.mpns || row.bom_reference || [],
+  };
+}
 
-  connections.forEach((c) => {
-    if (!c.target_part) return;
-    const srcSub = partToSubsystem.get(c.source_part);
-    const tgtSub = partToSubsystem.get(c.target_part);
-    if (!srcSub || !tgtSub || srcSub === tgtSub) return;
-
-    const key = `${srcSub}||${tgtSub}`;
-    const entry = groups.get(key) ?? { types: [], count: 0 };
-    entry.count++;
-    if (!entry.types.includes(c.connection_type)) entry.types.push(c.connection_type);
-    groups.set(key, entry);
-  });
-
-  return Array.from(groups.entries()).map(([key, entry]) => {
-    const [src, tgt] = key.split('||');
-    return {
-      source_subsystem_id: src,
-      target_subsystem_id: tgt,
-      connection_types: entry.types,
-      primary_type: entry.types[0] || 'signal',
-      part_connection_count: entry.count,
-    };
-  });
+function componentsFromSubsystems(subsystems: Subsystem[]): Component[] {
+  const byId = new Map<string, Component>();
+  for (const subsystem of subsystems) {
+    for (const part of subsystem.parts || []) {
+      const partId = String(part.design_part_id || part.part_number || part.mpn || '');
+      const partNumber = String(part.part_number || part.mpn || partId);
+      if (!partId || byId.has(partId)) continue;
+      byId.set(partId, {
+        id: partId,
+        reference: String(part.designator || part.component_id || partNumber),
+        partNumber,
+        manufacturer: part.manufacturer || undefined,
+        type: String(part.category || part.classification || 'component'),
+        description: String(part.description || partNumber),
+        specs: {},
+        isIdentified: true,
+        isGeneric: false,
+        complianceStatus: 'unknown',
+      });
+    }
+  }
+  return Array.from(byId.values());
 }
 
 export function SubsystemsPage() {
   const navigate = useNavigate();
   const { sessionId: contextSessionId, setSessionId, refreshTrigger } = useSession();
   const { sessionId: querySessionId, updateParams } = useQueryParams();
+  const activeSessionId = querySessionId || contextSessionId;
   const [subsystems, setSubsystems] = useState<Subsystem[]>([]);
-  const [components, setComponents] = useState<Component[]>([]);
-  const [requirements, setRequirements] = useState<Requirement[]>([]);
-  const [connections, setConnections] = useState<Connection[]>([]);
   const [subsystemConnections, setSubsystemConnections] = useState<SubsystemConnection[]>([]);
+  const [readiness, setReadiness] = useState<SubsystemReadinessResponse | null>(null);
   const [isLoading, setIsLoading] = useState(true);
+  const [isGenerating, setIsGenerating] = useState(false);
+  const [isCompleting, setIsCompleting] = useState(false);
   const [error, setError] = useState<string | null>(null);
 
-  // Sync session ID from query params
   useEffect(() => {
     if (querySessionId && querySessionId !== contextSessionId) {
       setSessionId(querySessionId);
     }
   }, [querySessionId, contextSessionId, setSessionId]);
 
-  // Update URL with session ID if it exists in context but not in URL
   useEffect(() => {
-    if (contextSessionId && contextSessionId !== querySessionId) {
+    if (contextSessionId && !querySessionId) {
       updateParams(contextSessionId);
     }
   }, [contextSessionId, querySessionId, updateParams]);
 
-  // Fetch subsystems, components, and requirements from API
+  const refresh = useCallback(async (options?: { generateIfEmpty?: boolean }) => {
+    if (!activeSessionId) {
+      setError('No session ID available');
+      setIsLoading(false);
+      return;
+    }
+    setError(null);
+    const response = await getSubsystems(activeSessionId);
+    let next = response;
+    if (options?.generateIfEmpty && (response.subsystems_count === 0 || response.subsystems.length === 0)) {
+      setIsGenerating(true);
+      try {
+        next = await generateSubsystems(activeSessionId);
+      } finally {
+        setIsGenerating(false);
+      }
+    }
+    setSubsystems(next.subsystems.map(mapSubsystem));
+    setSubsystemConnections(next.connections || []);
+    setReadiness(await getSubsystemReadiness(activeSessionId));
+  }, [activeSessionId]);
+
   useEffect(() => {
-    let isCurrent = true; // guard against stale concurrent fetches
-
-    const fetchData = async () => {
-      const activeSessionId = contextSessionId || querySessionId;
-
+    let isCurrent = true;
+    const run = async () => {
       if (!activeSessionId) {
-        if (isCurrent) { setError('No session ID available'); setIsLoading(false); }
+        if (isCurrent) {
+          setError('No session ID available');
+          setIsLoading(false);
+        }
         return;
       }
-
       try {
-        if (isCurrent) { setIsLoading(true); setError(null); }
-        
-        // Update URL with session query param
-        updateParams(activeSessionId);
-
-        // 1. Fetch subsystems (GET first, POST only if truly empty)
-        let subsystemsResponse;
-        try {
-          subsystemsResponse = await getSubsystems(activeSessionId);
-
-          if (subsystemsResponse.subsystems_count === 0 || subsystemsResponse.subsystems.length === 0) {
-            if (!isCurrent) return;
-            console.log('Subsystems are empty, generating...');
-            try {
-              subsystemsResponse = await generateSubsystems(activeSessionId);
-            } catch (postError: any) {
-              // 409 = another concurrent call already generated them — re-fetch
-              if (postError.message?.includes('409')) {
-                subsystemsResponse = await getSubsystems(activeSessionId);
-              } else {
-                throw postError;
-              }
-            }
-          }
-        } catch (getError: any) {
-          if (getError.message?.includes('404') || getError.message?.includes('Failed to get subsystems')) {
-            try {
-              subsystemsResponse = await generateSubsystems(activeSessionId);
-            } catch (postError: any) {
-              if (postError.message?.includes('409')) {
-                subsystemsResponse = await getSubsystems(activeSessionId);
-              } else {
-                throw postError;
-              }
-            }
-          } else {
-            throw getError;
-          }
-        }
-
-        // Map backend subsystems to frontend Subsystem format
-        const mappedSubsystems: Subsystem[] = subsystemsResponse.subsystems.map((backendSubsystem) => ({
-          id: backendSubsystem.subsystem_id,
-          name: backendSubsystem.name,
-          type: backendSubsystem.original_subsystem_id || backendSubsystem.name.toLowerCase().replace(/\s+/g, '_'),
-          componentIds: backendSubsystem.bom_reference, // bom_reference contains part numbers
-          complianceScore: undefined, // Not provided by API
-        }));
-
-        if (!isCurrent) return;
-        setSubsystems(mappedSubsystems);
-
-        // 2. Create components from subsystems' bom_reference
-        const uniqueParts = new Set<string>();
-        subsystemsResponse.subsystems.forEach((subsystem) => {
-          subsystem.bom_reference.forEach((partNumber) => {
-            if (partNumber) uniqueParts.add(partNumber);
-          });
-        });
-
-        const componentsList: Component[] = Array.from(uniqueParts).map((partNumber) => ({
-          id: partNumber,
-          reference: partNumber,
-          partNumber: partNumber,
-          type: 'component',
-          description: partNumber,
-          specs: {},
-          isIdentified: true,
-          isGeneric: false,
-          complianceStatus: 'unknown' as const,
-        }));
-
-        if (!isCurrent) return;
-        setComponents(componentsList);
-
-        // 3. Fetch part-level connections, then compute subsystem-level connections client-side.
-        // Computing locally means there is no separate API call and no timing dependency on
-        // subsystem DB rows being committed — eliminating the race condition entirely.
-        try {
-          const connectionsResponse = await getConnections(activeSessionId, activeSessionId);
-          if (!isCurrent) return;
-          const connectionsList = connectionsResponse?.connections ?? [];
-          setConnections(connectionsList);
-          setSubsystemConnections(computeSubsystemConnections(connectionsList, mappedSubsystems));
-        } catch (connError: any) {
-          console.log('Connections not available:', connError.message);
-        }
-
-        // 4. Fetch requirements
-        try {
-          const requirementsResponse = await getRequirementsGET(activeSessionId);
-          const mappedRequirements: Requirement[] = (requirementsResponse.requirements || []).map((apiReq) => ({
-            id: apiReq.req_id,
-            code: apiReq.original_req_id || apiReq.req_id,
-            title: apiReq.description.split('.')[0] || apiReq.description,
-            description: apiReq.description,
-            priority: 'medium' as const,
-            category: apiReq.category,
-            validationType: 'boolean' as const,
-            isPassed: true,
-            affectedComponents: apiReq.bom_reference || [],
-          }));
-          if (!isCurrent) return;
-          setRequirements(mappedRequirements);
-        } catch (reqError: any) {
-          console.warn('Failed to fetch requirements:', reqError);
-          if (isCurrent) setRequirements([]);
-        }
-
-        if (isCurrent) setIsLoading(false);
+        setIsLoading(true);
+        if (!querySessionId) updateParams(activeSessionId);
+        await refresh({ generateIfEmpty: true });
       } catch (err) {
         if (!isCurrent) return;
-        const errorMessage = err instanceof Error ? err.message : 'Failed to fetch subsystems data';
-        setError(errorMessage);
-        toast.error(errorMessage);
-        setIsLoading(false);
+        const message = err instanceof Error ? err.message : 'Failed to load subsystem architecture';
+        setError(message);
+        toast.error(message);
+      } finally {
+        if (isCurrent) setIsLoading(false);
       }
     };
-
-    fetchData();
+    run();
     return () => { isCurrent = false; };
-  }, [contextSessionId, querySessionId, updateParams, refreshTrigger]);
+  }, [activeSessionId, querySessionId, refresh, refreshTrigger, updateParams]);
 
-  const handleComplete = () => {
-    const activeSessionId = contextSessionId || querySessionId;
-    toast.success('Subsystems identified!');
-    if (activeSessionId) {
-      navigate(`/review?session=${activeSessionId}`);
-    } else {
-      navigate('/review');
+  const handleRegenerate = useCallback(async () => {
+    if (!activeSessionId) return;
+    setIsGenerating(true);
+    try {
+      const response = await generateSubsystems(activeSessionId);
+      setSubsystems(response.subsystems.map(mapSubsystem));
+      setSubsystemConnections(response.connections || []);
+      setReadiness(await getSubsystemReadiness(activeSessionId));
+      toast.success('Subsystem candidates regenerated.');
+    } catch (err) {
+      toast.error(err instanceof Error ? err.message : 'Failed to regenerate subsystems');
+    } finally {
+      setIsGenerating(false);
     }
-  };
+  }, [activeSessionId]);
+
+  const handleConfirm = useCallback(async (subsystemId: string) => {
+    if (!activeSessionId) return;
+    await confirmSubsystem(activeSessionId, subsystemId);
+    await refresh();
+    toast.success('Subsystem confirmed.');
+  }, [activeSessionId, refresh]);
+
+  const handleReject = useCallback(async (subsystemId: string) => {
+    if (!activeSessionId) return;
+    await rejectSubsystem(activeSessionId, subsystemId);
+    await refresh();
+    toast.success('Subsystem rejected.');
+  }, [activeSessionId, refresh]);
+
+  const handleMovePart = useCallback(async (designPartId: string, targetSubsystemId: string, sourceSubsystemId?: string) => {
+    if (!activeSessionId) return;
+    const response = await moveSubsystemPart(activeSessionId, designPartId, targetSubsystemId, sourceSubsystemId);
+    setSubsystems(response.subsystems.map(mapSubsystem));
+    setSubsystemConnections(response.connections || []);
+    setReadiness(await getSubsystemReadiness(activeSessionId));
+    toast.success('Part moved.');
+  }, [activeSessionId]);
+
+  const handleUpdateSubsystem = useCallback(async (
+    subsystemId: string,
+    payload: {
+      name?: string | null;
+      description?: string | null;
+      topology?: string | null;
+      topology_family?: string | null;
+    },
+  ) => {
+    if (!activeSessionId) return;
+    await updateSubsystem(activeSessionId, subsystemId, payload);
+    await refresh();
+    toast.success('Subsystem updated.');
+  }, [activeSessionId, refresh]);
+
+  const handleUpdateInterface = useCallback(async (
+    interfaceId: string,
+    payload: { signal_type?: string | null; description?: string | null },
+  ) => {
+    if (!activeSessionId) return;
+    await updateSubsystemInterface(activeSessionId, interfaceId, payload);
+    await refresh();
+    toast.success('Interface updated.');
+  }, [activeSessionId, refresh]);
+
+  const handleComplete = useCallback(async () => {
+    if (!activeSessionId) return;
+    setIsCompleting(true);
+    try {
+      await completeSubsystemArchitecture(activeSessionId);
+      toast.success('Subsystem architecture approved.');
+      navigate(`/review?session=${activeSessionId}`);
+    } catch (err) {
+      const message = err instanceof Error ? err.message : 'Resolve subsystem blockers before completing.';
+      toast.error(message);
+      setReadiness(await getSubsystemReadiness(activeSessionId));
+    } finally {
+      setIsCompleting(false);
+    }
+  }, [activeSessionId, navigate]);
+
+  const components = useMemo(() => componentsFromSubsystems(subsystems), [subsystems]);
 
   if (isLoading) {
     return (
-      <div className="h-full flex items-center justify-center">
+      <div className="flex h-full items-center justify-center">
         <div className="text-center">
-          <div className="animate-spin rounded-full h-12 w-12 border-b-2 border-blue-500 mx-auto mb-4"></div>
-          <p className="text-gray-600">Loading subsystems...</p>
+          <div className="mx-auto mb-4 h-12 w-12 animate-spin rounded-full border-b-2 border-blue-500" />
+          <p className="text-gray-600">Loading subsystem architecture...</p>
         </div>
       </div>
     );
@@ -232,12 +232,12 @@ export function SubsystemsPage() {
 
   if (error) {
     return (
-      <div className="h-full flex items-center justify-center">
+      <div className="flex h-full items-center justify-center">
         <div className="text-center">
-          <p className="text-red-600 mb-4">{error}</p>
+          <p className="mb-4 text-red-600">{error}</p>
           <button
-            onClick={() => window.location.reload()}
-            className="px-4 py-2 bg-blue-500 text-white rounded hover:bg-blue-600"
+            onClick={() => void refresh({ generateIfEmpty: true })}
+            className="rounded bg-blue-500 px-4 py-2 text-white hover:bg-blue-600"
           >
             Retry
           </button>
@@ -246,18 +246,22 @@ export function SubsystemsPage() {
     );
   }
 
-  const activeSessionId = contextSessionId || querySessionId;
-
   return (
     <SubsystemsView
       subsystems={subsystems}
       components={components}
-      requirements={requirements}
-      connections={connections}
       subsystemConnections={subsystemConnections}
+      readiness={readiness}
+      isGenerating={isGenerating}
+      isCompleting={isCompleting}
+      onRefresh={() => refresh()}
+      onRegenerate={handleRegenerate}
+      onConfirm={handleConfirm}
+      onReject={handleReject}
+      onMovePart={handleMovePart}
+      onUpdateSubsystem={handleUpdateSubsystem}
+      onUpdateInterface={handleUpdateInterface}
       onComplete={handleComplete}
-      onAddRequirements={() => {}}
-      sessionId={activeSessionId || ''}
     />
   );
 }

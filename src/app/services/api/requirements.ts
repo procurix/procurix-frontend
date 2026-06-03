@@ -1,0 +1,30 @@
+export {
+  applyRequirementProposal,
+  confirmAllRequirements,
+  confirmRequirement,
+  createRequirement,
+  deleteRequirement,
+  generateRequirements,
+  getRequirementDetail,
+  getRequirements,
+  getRequirementsGET,
+  getRequirementsTraceability,
+  proposeRequirementEdit,
+  rejectRequirement,
+  updateRequirement,
+} from './legacy';
+
+export type {
+  Requirement,
+  RequirementDetailResponse,
+  RequirementHistoryEvent,
+  RequirementProposal,
+  RequirementSourceEvidence,
+  RequirementsResponse,
+  RequirementsStatusResponse,
+  TraceabilityCell,
+  TraceabilityColumn,
+  TraceabilityCoverage,
+  TraceabilityMatrixResponse,
+  TraceabilityRequirementRow,
+} from './legacy';

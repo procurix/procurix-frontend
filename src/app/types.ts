@@ -24,7 +24,7 @@ export interface Component {
     temperature_max?: number;
     noise?: number;
     features?: string[];
-    [key: string]: any;
+    [key: string]: unknown;
   };
 
   // Identification status
@@ -57,7 +57,7 @@ export interface Requirement {
 
   // Validation
   validationType: 'threshold' | 'boolean' | 'range' | 'enum';
-  expectedValue?: any;
+  expectedValue?: unknown;
   threshold?: number;
   operator?: '>=' | '<=' | '=' | '!=' | '>' | '<';
 
@@ -71,9 +71,49 @@ export interface RequirementFailure {
   requirementCode: string;
   componentId: string;
   failureType: FailureType;
-  actualValue?: any;
-  expectedValue?: any;
+  actualValue?: unknown;
+  expectedValue?: unknown;
   description: string;
+}
+
+export interface SubsystemPart {
+  design_part_id?: string | null;
+  part_number?: string | null;
+  mpn?: string | null;
+  component_id?: string | null;
+  designator?: string | null;
+  category?: string | null;
+  classification?: string | null;
+  description?: string | null;
+  manufacturer?: string | null;
+  quantity?: number | null;
+  datasheet_url?: string | null;
+  source?: string | null;
+  user_corrected?: boolean | null;
+}
+
+export interface SubsystemMappedRequirement {
+  id?: string;
+  req_id?: string;
+  req_key?: string | null;
+  title?: string | null;
+  description?: string | null;
+  requirement_text?: string | null;
+  source_mpns?: string[];
+}
+
+export interface SubsystemInterfaceSummary {
+  id?: string | null;
+  source_subsystem_id?: string;
+  target_subsystem_id?: string;
+  source_subsystem?: string;
+  target_subsystem?: string;
+  interface_type?: string | null;
+  signal_type?: string | null;
+  primary_type?: string | null;
+  description?: string | null;
+  connection_types?: string[];
+  part_connection_count?: number;
 }
 
 export interface Subsystem {
@@ -83,6 +123,20 @@ export interface Subsystem {
   componentIds: string[];
   complianceScore?: number;
   position?: { x: number; y: number };
+  subsystem_id?: string;
+  description?: string | null;
+  status?: 'suggested' | 'confirmed' | 'rejected' | string;
+  confidence?: number | null;
+  rationale?: string | null;
+  warnings?: string[];
+  topology?: string | null;
+  topology_family?: string | null;
+  parts?: SubsystemPart[];
+  requirements?: SubsystemMappedRequirement[];
+  interfaces?: SubsystemInterfaceSummary[];
+  user_corrected?: boolean;
+  ai_generated?: boolean;
+  mpns?: string[];
 }
 
 export interface Alternative {
@@ -94,7 +148,9 @@ export interface Alternative {
   complianceStatus: ComplianceStatus;
 
   specs: {
-    [key: string]: any;
+    voltage?: string | number;
+    current?: string | number;
+    [key: string]: unknown;
   };
 
   // Comparison metrics
@@ -146,7 +202,7 @@ export interface BOMUploadData {
   fileName: string;
   rowCount: number;
   columns: string[];
-  preview: any[];
+  preview: Record<string, unknown>[];
 }
 
 export interface IdentificationResult {
@@ -154,7 +210,7 @@ export interface IdentificationResult {
   success: boolean;
   partNumber?: string;
   manufacturer?: string;
-  specs?: any;
+  specs?: Record<string, unknown>;
   datasheetUrl?: string;
   error?: string;
 }

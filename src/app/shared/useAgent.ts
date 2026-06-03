@@ -13,6 +13,10 @@ export interface AgentResponse {
   data: unknown;
 }
 
+interface AgentSendOptions {
+  mode?: string;
+}
+
 interface UseAgentOptions {
   onToolResult?: (tool: string, data: unknown) => void;
 }
@@ -20,14 +24,15 @@ interface UseAgentOptions {
 export function useAgent(designId: string, stage: string, options: UseAgentOptions = {}) {
   const [history, setHistory] = useState<AgentHistoryMessage[]>([]);
   const [loading, setLoading] = useState(false);
+  const { onToolResult } = options;
 
-  const send = useCallback(async (message: string): Promise<AgentResponse> => {
+  const send = useCallback(async (message: string, sendOptions: AgentSendOptions = {}): Promise<AgentResponse> => {
     setLoading(true);
     try {
       const res = await fetch(`${API_BASE}/designs/${designId}/agent/${stage}`, {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ message, history }),
+        body: JSON.stringify({ message, history, mode: sendOptions.mode }),
       });
       if (!res.ok) {
         const err = await res.json().catch(() => ({ detail: res.statusText }));
@@ -43,14 +48,14 @@ export function useAgent(designId: string, stage: string, options: UseAgentOptio
       ]);
 
       if (response.type === 'tool_result' && response.tool_called) {
-        options.onToolResult?.(response.tool_called, response.data);
+        onToolResult?.(response.tool_called, response.data);
       }
 
       return response;
     } finally {
       setLoading(false);
     }
-  }, [designId, stage, history, options.onToolResult]);
+  }, [designId, stage, history, onToolResult]);
 
   const reset = useCallback(() => setHistory([]), []);
 

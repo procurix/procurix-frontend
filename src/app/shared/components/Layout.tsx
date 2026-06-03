@@ -8,6 +8,8 @@ import { CommandPalette } from '@/app/shared/components/CommandPalette';
 import type { SessionStage } from '@/app/types';
 import { useSession } from '@/app/context/SessionContext';
 import { getBOMBySessionId } from '@/app/services/api';
+import { useQueryParams } from '@/app/shared/hooks/useQueryParams';
+import { getRouteForStage, getStageForNumber, getStageNumber, ROUTE_TO_STAGE, STAGE_TO_ROUTE, withSession } from '@/app/shared/utils/workflowStages';
 
 interface LayoutProps {
   children: React.ReactNode;
@@ -23,50 +25,72 @@ export function Layout({ children, showBackButton = true, showStageIndicator = f
   const navigate = useNavigate();
   const [commandPaletteOpen, setCommandPaletteOpen] = useState(false);
   const [drawerOpen, setDrawerOpen] = useState(false);
-  const { sessionId, currentStage: maxReachedStage, setCurrentStage } = useSession();
+  const {
+    sessionId,
+    setSessionId,
+    currentStage: maxReachedStage,
+    setCurrentStage,
+    refreshTrigger,
+  } = useSession();
+  const { sessionId: querySessionId } = useQueryParams();
   const [, setIsLoadingBOM] = useState(false);
+  const activeSessionId = querySessionId || sessionId;
+  const isSyncingUrlSession = Boolean(querySessionId && querySessionId !== sessionId);
+  const activeMaxReachedStage = isSyncingUrlSession ? null : maxReachedStage;
 
   const hasOwnChat = PAGES_WITH_OWN_CHAT.has(location.pathname);
 
   const getCurrentStage = (): SessionStage | null => {
-    const path = location.pathname;
-    const stageMap: Record<string, SessionStage> = {
-      '/upload': 'upload',
-      '/part-identification': 'part-identification',
-      '/system-identification': 'system-identification',
-      '/classification': 'classification',
-      '/enrichment': 'enrichment',
-      '/validate': 'validate',
-      '/architecture': 'architecture',
-      '/requirements': 'requirements',
-      '/subsystems': 'subsystems',
-    };
-    return stageMap[path] || null;
+    return ROUTE_TO_STAGE[location.pathname] || null;
   };
 
   const currentStage = getCurrentStage();
+  const currentRouteStageNumber = getStageNumber(currentStage);
+  const indicatorStage = currentStage
+    ?? (activeMaxReachedStage !== null && activeMaxReachedStage !== undefined
+      ? getStageForNumber(activeMaxReachedStage)
+      : null);
 
-  // Fetch BOM data to get current_stage when sessionId changes
   useEffect(() => {
+    if (querySessionId && querySessionId !== sessionId) {
+      setSessionId(querySessionId);
+    }
+  }, [querySessionId, sessionId, setSessionId]);
+
+  // Fetch canonical backend stage. This can move backward when a review blocker
+  // is discovered, so it must not be gated by the local optimistic stage.
+  useEffect(() => {
+    let cancelled = false;
     const fetchBOMData = async () => {
-      if (location.pathname === '/upload' && !sessionId) {
+      if (location.pathname === '/upload' && !activeSessionId) {
         setCurrentStage(null);
         return;
       }
-      if (sessionId && !maxReachedStage) {
+      if (activeSessionId) {
         setIsLoadingBOM(true);
         try {
-          const bom = await getBOMBySessionId(sessionId);
-          if (bom) setCurrentStage(bom.current_stage);
+          const bom = await getBOMBySessionId(activeSessionId);
+          if (!cancelled && bom) setCurrentStage(bom.current_stage);
         } catch (error) {
-          console.error('Error fetching BOM data:', error);
+          if (!cancelled) console.error('Error fetching BOM data:', error);
         } finally {
-          setIsLoadingBOM(false);
+          if (!cancelled) setIsLoadingBOM(false);
         }
       }
     };
     fetchBOMData();
-  }, [sessionId, maxReachedStage, setCurrentStage, location.pathname]);
+    return () => {
+      cancelled = true;
+    };
+  }, [activeSessionId, refreshTrigger, setCurrentStage, location.pathname]);
+
+  useEffect(() => {
+    if (!activeSessionId || !activeMaxReachedStage || !currentRouteStageNumber) return;
+    if (currentRouteStageNumber <= activeMaxReachedStage) return;
+
+    const targetRoute = getRouteForStage(activeMaxReachedStage);
+    navigate(withSession(targetRoute, activeSessionId), { replace: true });
+  }, [activeSessionId, activeMaxReachedStage, currentRouteStageNumber, navigate]);
 
   useEffect(() => {
     const handleKeyDown = (e: KeyboardEvent) => {
@@ -104,7 +128,7 @@ export function Layout({ children, showBackButton = true, showStageIndicator = f
       chat: '/chat',
     };
     const route = commandRoutes[command];
-    if (route) navigate(route);
+    if (route) navigate(withSession(route, activeSessionId));
     setCommandPaletteOpen(false);
   };
 
@@ -134,7 +158,7 @@ export function Layout({ children, showBackButton = true, showStageIndicator = f
 
           <div className="flex items-center gap-2">
             {/* Chat button — hidden on pages with their own console */}
-            {sessionId && !hasOwnChat && (
+            {activeSessionId && !hasOwnChat && (
               <button
                 onClick={() => setDrawerOpen(prev => !prev)}
                 className={`flex items-center gap-2 rounded-lg border px-4 py-2 text-sm transition-colors ${
@@ -159,24 +183,13 @@ export function Layout({ children, showBackButton = true, showStageIndicator = f
           </div>
         </div>
 
-        {showStageIndicator && (currentStage ?? maxReachedStage) && (
+        {showStageIndicator && indicatorStage && (
           <StageIndicator
-            currentStage={currentStage as any}
-            maxReachedStage={maxReachedStage}
+            currentStage={indicatorStage}
+            maxReachedStage={activeMaxReachedStage}
             onStageClick={(stage) => {
-              const stageRoutes: Record<string, string> = {
-                upload: '/upload',
-                'part-identification': '/part-identification',
-                'system-identification': '/system-identification',
-                classification: '/classification',
-                enrichment: '/enrichment',
-                validate: '/validate',
-                architecture: '/architecture',
-                requirements: '/requirements',
-                subsystems: '/subsystems',
-              };
-              const route = stageRoutes[stage];
-              if (route) navigate(route);
+              const route = STAGE_TO_ROUTE[stage];
+              if (route) navigate(withSession(route, activeSessionId));
             }}
           />
         )}

@@ -1,4 +1,4 @@
-import { memo } from 'react';
+import { createElement, memo } from 'react';
 import { Handle, Position } from '@xyflow/react';
 import type { Component } from '@/app/types';
 import { getComponentIcon, getTypeColor, getTypeBorderColor } from './shapeUtils';
@@ -14,9 +14,9 @@ interface CircleNodeProps {
 }
 
 export const CircleNode = memo(({ data, selected }: CircleNodeProps) => {
-  const Icon = getComponentIcon(data.type);
   const gradientClass = getTypeColor(data.type);
   const borderColor = getTypeBorderColor(data.type, selected || false);
+  const icon = createElement(getComponentIcon(data.type), { className: 'h-4 w-4 text-white' });
 
   return (
     <div className="relative">
@@ -71,7 +71,7 @@ export const CircleNode = memo(({ data, selected }: CircleNodeProps) => {
         <div className="absolute inset-0 flex flex-col items-center justify-center p-3">
           {/* Icon */}
           <div className={`mb-2 p-2 rounded-full bg-gradient-to-r ${gradientClass}`}>
-            <Icon className="h-4 w-4 text-white" />
+            {icon}
           </div>
           
           {/* Reference */}

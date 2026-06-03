@@ -5,22 +5,7 @@ import { getAllBOMs } from '@/app/services/api';
 import type { BOMSession, SessionStage } from '@/app/types';
 import { toast } from 'sonner';
 import { useSession } from '@/app/context/SessionContext';
-import { getRouteForStage } from '@/app/shared/utils/navigation';
-
-// Map API stage number to SessionStage type
-// 1=Upload, 2=Part ID, 3=System ID, 4=Classification, 5=Validation,
-// 6=Requirements, 7=Architecture, 8=Subsystems, 9=Subsystem Reqs, 10=Finalization
-const mapStageNumberToStage = (stageNumber: number): SessionStage => {
-  if (stageNumber >= 10) return 'review';
-  if (stageNumber >= 8) return 'subsystems';
-  if (stageNumber >= 7) return 'architecture';
-  if (stageNumber >= 6) return 'requirements';
-  if (stageNumber >= 5) return 'validate';
-  if (stageNumber >= 4) return 'classification';
-  if (stageNumber >= 3) return 'system-identification';
-  if (stageNumber >= 2) return 'part-identification';
-  return 'upload';
-};
+import { getRouteForStage, getStageForNumber, withSession } from '@/app/shared/utils/workflowStages';
 
 export function LibraryPage() {
   const navigate = useNavigate();
@@ -38,7 +23,7 @@ export function LibraryPage() {
         // Transform API response to BOMSession format
         const stageMap = new Map<string, number>();
         const transformedSessions: BOMSession[] = response.boms.map((bom) => {
-          const stage = mapStageNumberToStage(bom.current_stage);
+          const stage = getStageForNumber(bom.current_stage) as SessionStage;
           const isComplete = bom.current_stage >= 10; // Stage 10 is considered complete
           
           // Store original stage number for navigation
@@ -91,7 +76,7 @@ export function LibraryPage() {
     const route = getRouteForStage(currentStage);
     
     // Navigate with query parameter
-    navigate(`${route}?session=${session.id}`);
+    navigate(withSession(route, session.id));
   };
 
   const handleNewBOM = () => {

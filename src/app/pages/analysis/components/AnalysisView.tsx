@@ -3,7 +3,7 @@ import { CheckCircle, Zap, Loader2, Info } from 'lucide-react';
 import { motion, AnimatePresence } from 'motion/react';
 import { toast } from 'sonner';
 import { useSession } from '@/app/context/SessionContext';
-import { analyzeSystem, getSystemAnalysis, selectSystemType, type SystemSuggestion } from '@/app/services/api';
+import { analyzeSystem, getCurrentStage, getSystemAnalysis, selectSystemType, type SystemSuggestion } from '@/app/services/api';
 import { usePipelineStage } from '@/app/shared/usePipelineStage';
 import { useAgent } from '@/app/shared/useAgent';
 
@@ -64,10 +64,34 @@ export function AnalysisView({ onSystemTypeSelected }: AnalysisViewProps) {
     initiatedRef.current = true;
 
     const init = async () => {
-      // Only fetch existing analysis if we know it has run (stage >= 2 = analyzed).
+      // Avoid rerunning analysis when a refreshed design has already advanced.
       // Stage 1 = bom_uploaded — skip the GET, go straight to trigger.
       // Wrap in try-catch: a 404 means analysis hasn't run yet — fall through to sendTrigger.
-      if (currentStage !== null && currentStage >= 2) {
+      const resolvedStage = currentStage ?? await getCurrentStage(sessionId)
+        .then(stage => stage.current_stage)
+        .catch(() => null);
+
+      // system_analyzed means suggestions exist but the human review is still
+      // pending. Hydrate those suggestions instead of rerunning analysis.
+      try {
+        const existing = await getSystemAnalysis(sessionId);
+        if (existing.suggestions?.length) {
+          setSuggestions(existing.suggestions);
+          const top = existing.suggestions[0];
+          pushSystem(
+            existing.confirmed
+              ? `System type already confirmed: ${existing.system_type ?? top?.systemType ?? 'selected option'}. Continue to Classification.`
+              : top?.confidence === 'high'
+                ? `${top.systemType} - select from the options on the right or type to refine.`
+                : `${existing.suggestions.length} options identified - review on the right or type to refine.`
+          );
+          return;
+        }
+      } catch {
+        // Analysis is not available yet; fall through to the first trigger.
+      }
+
+      if (resolvedStage !== null && resolvedStage >= 4) {
         try {
           const existing = await getSystemAnalysis(sessionId);
           if (existing.success && existing.suggestions?.length) {
@@ -83,12 +107,16 @@ export function AnalysisView({ onSystemTypeSelected }: AnalysisViewProps) {
         } catch {
           // 404 or network error — analysis not yet available, fall through to trigger
         }
+        pushSystem('System identification is already complete. Continue to Classification.');
+        return;
       }
 
       await sendTrigger();
     };
 
     init();
+  // The analysis trigger is intentionally one-shot per mounted session.
+  // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [sessionId]);
 
   const pushLine = (type: Line['type'], content: string) => {
@@ -145,8 +173,8 @@ export function AnalysisView({ onSystemTypeSelected }: AnalysisViewProps) {
     try {
       const res = await agent.send(text);
       pushOutput(res.message);
-    } catch (err: any) {
-      pushError(`Error: ${err.message}`);
+    } catch (err: unknown) {
+      pushError(`Error: ${err instanceof Error ? err.message : String(err)}`);
     } finally {
       inputRef.current?.focus();
     }
@@ -167,8 +195,8 @@ export function AnalysisView({ onSystemTypeSelected }: AnalysisViewProps) {
       const s = suggestions[selected];
       toast.success(`System type confirmed: ${s.systemType}`);
       onSystemTypeSelected(s.systemType);
-    } catch (err: any) {
-      toast.error(err.message);
+    } catch (err: unknown) {
+      toast.error(err instanceof Error ? err.message : String(err));
     } finally {
       setConfirming(false);
     }

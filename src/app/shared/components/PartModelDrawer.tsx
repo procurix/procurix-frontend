@@ -11,6 +11,7 @@ interface PartModelDrawerProps {
     designId: string;
     isOpen: boolean;
     onClose: () => void;
+    side?: 'left' | 'right';
 }
 
 // ── State ─────────────────────────────────────────────────────────────────────
@@ -431,14 +432,19 @@ function OverviewTab({ model }: { model: PartModelData }) {
 
 // ── Main ──────────────────────────────────────────────────────────────────────
 
-export function PartModelDrawer({ mpn, designId, isOpen, onClose }: PartModelDrawerProps) {
+export function PartModelDrawer({ mpn, designId, isOpen, onClose, side = 'right' }: PartModelDrawerProps) {
     const [state, setState] = useState<DrawerState>({ phase: 'loading' });
     const [pinsState, setPinsState] = useState<PinsState>({ phase: 'idle' });
     const [activeTab, setActiveTab] = useState<Tab>('overview');
+    const closedOffset = side === 'left' ? '-100%' : '100%';
+    const sideClass = side === 'left' ? 'left-0' : 'right-0';
 
     // Fetch model when drawer opens
     useEffect(() => {
         if (!isOpen) return;
+        // Reset drawer state immediately when a new part is selected so stale
+        // model data is never shown while the request is in flight.
+        // eslint-disable-next-line react-hooks/set-state-in-effect
         setState({ phase: 'loading' });
         setPinsState({ phase: 'idle' });
         setActiveTab('overview');
@@ -457,6 +463,9 @@ export function PartModelDrawer({ mpn, designId, isOpen, onClose }: PartModelDra
     // Fetch pins lazily the first time the Pins tab is activated
     useEffect(() => {
         if (activeTab !== 'pins' || pinsState.phase !== 'idle' || state.phase !== 'ready') return;
+        // The pins tab is lazy-loaded; flip to loading before the request so
+        // the drawer does not show an empty tab during network work.
+        // eslint-disable-next-line react-hooks/set-state-in-effect
         setPinsState({ phase: 'loading' });
         getPartPinout(designId, mpn).then(res => {
             setPinsState({ phase: 'ready', pins: res.pins, pkg: res.package });
@@ -473,8 +482,8 @@ export function PartModelDrawer({ mpn, designId, isOpen, onClose }: PartModelDra
                 setState({ phase: 'ready', model: res.model, extractedAt: res.extracted_at! });
             }
             // extraction_started — background job running; user reopens drawer when done
-        } catch (err: any) {
-            setState({ phase: 'error', message: String(err.message ?? err) });
+        } catch (err: unknown) {
+            setState({ phase: 'error', message: err instanceof Error ? err.message : String(err) });
         }
     };
 
@@ -494,11 +503,11 @@ export function PartModelDrawer({ mpn, designId, isOpen, onClose }: PartModelDra
 
                     <motion.div
                         key="panel"
-                        initial={{ x: '100%' }}
+                        initial={{ x: closedOffset }}
                         animate={{ x: 0 }}
-                        exit={{ x: '100%' }}
+                        exit={{ x: closedOffset }}
                         transition={{ type: 'spring', damping: 30, stiffness: 300 }}
-                        className="fixed right-0 top-0 h-full w-[480px] max-w-full bg-white shadow-2xl z-50 flex flex-col"
+                        className={`fixed ${sideClass} top-0 h-full w-[480px] max-w-full bg-white shadow-2xl z-50 flex flex-col`}
                     >
                         {/* Header */}
                         <div className="shrink-0 px-5 py-4 border-b border-gray-200 flex items-center gap-3">

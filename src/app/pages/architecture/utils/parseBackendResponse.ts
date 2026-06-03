@@ -6,10 +6,16 @@ export interface BackendComponentBOM {
   quantity: number;
 }
 
+export interface BackendActualPart {
+  part_number?: string;
+  pinout?: Record<string, { name: string; type: string; description: string }>;
+  [key: string]: unknown;
+}
+
 export interface BackendResponse {
   component_bom?: BackendComponentBOM[];
-  actual_parts_bom?: any[];
-  [key: string]: any;
+  actual_parts_bom?: BackendActualPart[];
+  [key: string]: unknown;
 }
 
 /**
@@ -44,7 +50,7 @@ export function createPinoutMap(backendResponse: BackendResponse): Map<string, R
   const pinoutMap = new Map<string, Record<string, { name: string; type: string; description: string }>>();
   
   if (backendResponse.actual_parts_bom && Array.isArray(backendResponse.actual_parts_bom)) {
-    backendResponse.actual_parts_bom.forEach((part: any) => {
+    backendResponse.actual_parts_bom.forEach((part) => {
       if (part.part_number && part.pinout) {
         pinoutMap.set(part.part_number, part.pinout);
       }

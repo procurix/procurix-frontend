@@ -5,336 +5,349 @@ export interface ConnectionData {
   from: string;
   to: string;
   type: string;
-  [key: string]: any;
 }
 
 export type LayoutType = 'random';
 
-// Simple horizontal flow layout (current implementation)
-export function horizontalFlowLayout(
-  blocks: ComponentBlock[],
-  _connections: ConnectionData[]
-): ComponentBlock[] {
-  const columnWidth = 300;
-  const startX = 100;
-  const startY = 200;
-  const viewportWidth = 2000;
-  
-  // Calculate total width needed
-  const totalWidth = blocks.length * columnWidth;
-  
-  // Center horizontally if total width is less than viewport
-  const offsetX = totalWidth < viewportWidth ? (viewportWidth - totalWidth) / 2 : startX;
-
-  return blocks.map((block, idx) => ({
-    ...block,
-    x: offsetX + idx * columnWidth,
-    y: startY,
-  }));
+export interface LayoutPoint {
+  x: number;
+  y: number;
 }
 
-// Dagre Tree layout - groups connected components together
-export function dagreTreeLayout(
-  blocks: ComponentBlock[],
-  connections: ConnectionData[]
+export interface RoutedLayoutResult {
+  blocks: ComponentBlock[];
+  edgeRoutes: Record<string, LayoutPoint[]>;
+}
+
+const NODE_W = 390;
+const NODE_H = 260;   // safe upper-bound for collapsed node height
+const NET_NODE_W = 136;
+const NET_NODE_H = 48;
+const GAP_X = 260;    // horizontal gap between layers
+const GAP_Y = 120;    // vertical gap between nodes in the same layer
+const MAX_ELK_NODES = 80;
+const MAX_ELK_EDGES = 240;
+const ELK_LAYOUT_TIMEOUT_MS = 4500;
+
+type ElkInstance = {
+  layout: (graph: unknown) => Promise<{
+    children?: Array<{ id: string; x?: number; y?: number }>;
+    edges?: Array<{
+      id: string;
+      sections?: Array<{
+        startPoint?: LayoutPoint;
+        bendPoints?: LayoutPoint[];
+        endPoint?: LayoutPoint;
+      }>;
+    }>;
+  }>;
+};
+
+function getLayoutSize(block: ComponentBlock): { width: number; height: number } {
+  if (block.specs?.isVirtualNet) {
+    return { width: NET_NODE_W, height: NET_NODE_H };
+  }
+  return { width: NODE_W, height: NODE_H };
+}
+
+let elkInstancePromise: Promise<ElkInstance> | null = null;
+
+async function getElkInstance(): Promise<ElkInstance> {
+  if (!elkInstancePromise) {
+    elkInstancePromise = import('elkjs/lib/elk.bundled.js').then(
+      ({ default: ELK }) => new ELK() as unknown as ElkInstance,
+    );
+  }
+  return await elkInstancePromise;
+}
+
+function withTimeout<T>(promise: Promise<T>, timeoutMs: number): Promise<T> {
+  return new Promise((resolve, reject) => {
+    const timeout = window.setTimeout(() => {
+      reject(new Error(`ELK layout exceeded ${timeoutMs}ms`));
+    }, timeoutMs);
+
+    promise
+      .then(resolve, reject)
+      .finally(() => window.clearTimeout(timeout));
+  });
+}
+
+function sortLayerBlocks(
+  layerBlocks: ComponentBlock[],
+  outEdges: Map<string, string[]>,
+  inDeg: Map<string, number>,
 ): ComponentBlock[] {
-  // Group components by connectivity
-  const connectedComponents = new Set<string>();
-  const componentMap = new Map<string, ComponentBlock>();
+  return [...layerBlocks].sort((a, b) => {
+    const degreeA = (outEdges.get(a.id)?.length ?? 0) + (inDeg.get(a.id) ?? 0);
+    const degreeB = (outEdges.get(b.id)?.length ?? 0) + (inDeg.get(b.id) ?? 0);
+    if (degreeA !== degreeB) return degreeB - degreeA;
 
-  blocks.forEach(block => {
-    componentMap.set(block.id, block);
+    const categoryA = String(a.specs?.Category || a.category || a.type || '');
+    const categoryB = String(b.specs?.Category || b.category || b.type || '');
+    return categoryA.localeCompare(categoryB) || String(a.partNumber || a.id).localeCompare(String(b.partNumber || b.id));
   });
+}
 
-  // Find all connected components
-  connections.forEach(conn => {
-    connectedComponents.add(conn.from);
-    connectedComponents.add(conn.to);
-  });
+/**
+ * Topological layer layout.
+ *
+ * Assigns each node to a "layer" (column) by BFS distance from sources
+ * (nodes with no incoming edges). Nodes in the same layer are distributed
+ * vertically. Isolated nodes (no connections) go into a final row below.
+ *
+ * Result: clean left-to-right signal-flow diagram, no overlaps, deterministic.
+ */
+function topologicalLayout(
+  blocks: ComponentBlock[],
+  connections: ConnectionData[],
+): ComponentBlock[] {
+  if (blocks.length === 0) return blocks;
 
-  // Separate connected and unconnected components
-  const connected: ComponentBlock[] = [];
-  const unconnected: ComponentBlock[] = [];
+  // Build directed adjacency + in-degree map
+  const outEdges = new Map<string, string[]>();
+  const inDeg    = new Map<string, number>();
+  blocks.forEach(b => { outEdges.set(b.id, []); inDeg.set(b.id, 0); });
 
-  blocks.forEach(block => {
-    if (connectedComponents.has(block.id)) {
-      connected.push(block);
-    } else {
-      unconnected.push(block);
+  connections.forEach(c => {
+    if (outEdges.has(c.from) && outEdges.has(c.to)) {
+      outEdges.get(c.from)!.push(c.to);
+      inDeg.set(c.to, (inDeg.get(c.to) ?? 0) + 1);
     }
   });
 
-  // Build graph structure for connected components
-  const graph: Record<string, string[]> = {};
-  connected.forEach(block => {
-    graph[block.id] = [];
-  });
+  // Layer assignment via BFS from sources
+  const layerOf = new Map<string, number>();
 
-  connections.forEach(conn => {
-    if (!graph[conn.from]) graph[conn.from] = [];
-    if (!graph[conn.to]) graph[conn.to] = [];
-    if (!graph[conn.from].includes(conn.to)) {
-      graph[conn.from].push(conn.to);
-    }
-  });
+  const sources = blocks
+    .filter(b => (inDeg.get(b.id) ?? 0) === 0 && (outEdges.get(b.id)?.length ?? 0) > 0)
+    .map(b => b.id);
 
-  // Simple tree layout algorithm
-  const positioned = new Set<string>();
-  const result: ComponentBlock[] = [];
-  const nodeHeight = 250;
-  const horizontalSpacing = 250;
-  const verticalSpacing = 150;
+  // If no clear sources (all cycles), seed from the highest-degree node
+  const seeds = sources.length
+    ? sources
+    : [blocks.reduce((best, b) =>
+        (outEdges.get(b.id)?.length ?? 0) > (outEdges.get(best.id)?.length ?? 0) ? b : best
+      ).id];
 
-  // Find root nodes (nodes with no incoming edges)
-  const hasIncoming = new Set<string>();
-  connections.forEach(conn => {
-    hasIncoming.add(conn.to);
-  });
+  seeds.forEach(id => layerOf.set(id, 0));
+  let frontier = seeds;
 
-  const roots = connected.filter(block => !hasIncoming.has(block.id));
+  const settled = new Set<string>(seeds);
 
-  // Layout connected components using simple tree structure
-  // Start from a more centered position
-  const viewportWidth = 2000;
-  const viewportHeight = 2000;
-  let currentX = viewportWidth / 4; // Start at 1/4 of viewport width
-  let currentY = viewportHeight / 4; // Start at 1/4 of viewport height
-  let maxY = currentY;
-
-  function layoutNode(blockId: string, x: number, y: number, level: number) {
-    if (positioned.has(blockId)) return;
-
-    const block = componentMap.get(blockId);
-    if (!block) return;
-
-    positioned.add(blockId);
-    result.push({
-      ...block,
-      x,
-      y,
-    });
-
-    const children = graph[blockId] || [];
-    if (children.length > 0) {
-      const childX = x + horizontalSpacing;
-      const childYStart = y;
-
-      children.forEach((childId, idx) => {
-        const childY = childYStart + (idx - (children.length - 1) / 2) * 120;
-        layoutNode(childId, childX, childY, level + 1);
-        maxY = Math.max(maxY, childY + nodeHeight);
+  while (frontier.length > 0) {
+    const next: string[] = [];
+    frontier.forEach(id => {
+      const currentLayer = layerOf.get(id) ?? 0;
+      (outEdges.get(id) ?? []).forEach(nId => {
+        // Electrical graphs often contain cycles. Assign each node once so a
+        // feedback path cannot keep increasing layer numbers forever.
+        if (!settled.has(nId)) {
+          layerOf.set(nId, currentLayer + 1);
+          settled.add(nId);
+          next.push(nId);
+        }
       });
-    }
+    });
+    frontier = next;
   }
 
-  // Layout roots
-  roots.forEach((root, idx) => {
-    layoutNode(root.id, currentX, currentY + idx * (maxY + verticalSpacing), 0);
-  });
+  // Group: connected nodes by layer, isolated nodes separate
+  const byLayer = new Map<number, ComponentBlock[]>();
+  const isolated: ComponentBlock[] = [];
 
-  // Layout any remaining connected components
-  connected.forEach(block => {
-    if (!positioned.has(block.id)) {
-      layoutNode(block.id, currentX, maxY + verticalSpacing, 0);
+  blocks.forEach(b => {
+    const isIsolated =
+      (inDeg.get(b.id) ?? 0) === 0 &&
+      (outEdges.get(b.id)?.length ?? 0) === 0;
+
+    if (isIsolated) {
+      isolated.push(b);
+      return;
     }
-  });
-
-  // Layout unconnected components in a separate area
-  const unconnectedStartX = currentX;
-  const unconnectedStartY = maxY + verticalSpacing * 2;
-  unconnected.forEach((block, idx) => {
-    result.push({
-      ...block,
-      x: unconnectedStartX + idx * horizontalSpacing,
-      y: unconnectedStartY,
-    });
-  });
-
-  return result;
-}
-
-// Random layout - places components with leaves on left and multi-connections on right
-export function randomLayout(
-  blocks: ComponentBlock[],
-  connections: ConnectionData[]
-): ComponentBlock[] {
-  const viewportWidth = 2000;
-  const viewportHeight = 2000;
-  const minSpacing = 300; // Minimum distance between components
-  const nodeWidth = 200; // Approximate node width
-  const nodeHeight = 250; // Approximate node height
-  const padding = 100; // Padding from edges
-
-  // Calculate connection count for each component
-  const connectionCounts = new Map<string, number>();
-  blocks.forEach(block => {
-    connectionCounts.set(block.id, 0);
-  });
-
-  // Count both incoming and outgoing connections
-  connections.forEach(conn => {
-    const fromCount = connectionCounts.get(conn.from) || 0;
-    const toCount = connectionCounts.get(conn.to) || 0;
-    connectionCounts.set(conn.from, fromCount + 1);
-    connectionCounts.set(conn.to, toCount + 1);
-  });
-
-  // Sort blocks by connection count (leaves first, highly connected last)
-  const sortedBlocks = [...blocks].sort((a, b) => {
-    const countA = connectionCounts.get(a.id) || 0;
-    const countB = connectionCounts.get(b.id) || 0;
-    return countA - countB;
+    const l = layerOf.get(b.id) ?? 0;
+    if (!byLayer.has(l)) byLayer.set(l, []);
+    byLayer.get(l)!.push(b);
   });
 
   const result: ComponentBlock[] = [];
-  const placedPositions: Array<{ x: number; y: number }> = [];
 
-  // Helper function to check if a position is too close to existing positions
-  const isTooClose = (x: number, y: number): boolean => {
-    for (const pos of placedPositions) {
-      const distance = Math.sqrt(Math.pow(x - pos.x, 2) + Math.pow(y - pos.y, 2));
-      if (distance < minSpacing) {
-        return true;
-      }
-    }
-    return false;
-  };
+  // Place connected nodes layer by layer (left to right)
+  const layerNums = [...byLayer.keys()].sort((a, b) => a - b);
+  const layerHeight = (count: number) => count * (NODE_H + GAP_Y) - GAP_Y;
 
-  // Divide viewport into zones: left (leaves), center (highly connected), right (medium)
-  const leftZoneWidth = viewportWidth * 0.3; // Left 30% for leaves
-  const centerZoneStart = viewportWidth * 0.3; // Center starts at 30%
-  const centerZoneEnd = viewportWidth * 0.7; // Center ends at 70% (40% width for highly connected)
-  const rightZoneStart = viewportWidth * 0.7; // Right 30% for medium connections
-
-  // Place each block based on its connection count
-  sortedBlocks.forEach((block) => {
-    const connectionCount = connectionCounts.get(block.id) || 0;
-    
-    // Determine which zone based on connection count
-    let targetXMin: number;
-    let targetXMax: number;
-    
-    if (connectionCount === 0 || connectionCount === 1) {
-      // Leaves go to left zone
-      targetXMin = padding;
-      targetXMax = leftZoneWidth - nodeWidth - padding;
-    } else if (connectionCount >= 4) {
-      // Highly connected go to center zone
-      targetXMin = centerZoneStart;
-      targetXMax = centerZoneEnd - nodeWidth;
-    } else {
-      // Medium connections (2-3) go to right zone
-      targetXMin = rightZoneStart;
-      targetXMax = viewportWidth - nodeWidth - padding;
-    }
-
-    let attempts = 0;
-    let placed = false;
-    const maxAttempts = 150;
-
-    while (!placed && attempts < maxAttempts) {
-      // Generate random position within target zone
-      const x = targetXMin + Math.random() * (targetXMax - targetXMin);
-      const y = padding + Math.random() * (viewportHeight - padding * 2 - nodeHeight);
-
-      // Check if position is valid (not too close to others)
-      if (!isTooClose(x, y)) {
-        result.push({
-          ...block,
-          x,
-          y,
-        });
-        placedPositions.push({ x, y });
-        placed = true;
-      }
-      attempts++;
-    }
-
-    // If we couldn't find a good position after max attempts, place it anyway
-    // but try to find a less crowded area in the target zone
-    if (!placed) {
-      let bestX = targetXMin;
-      let bestY = padding;
-      let bestDistance = 0;
-
-      // Try a grid-based approach as fallback within target zone
-      const gridStep = minSpacing;
-      for (let x = targetXMin; x <= targetXMax; x += gridStep) {
-        for (let y = padding; y < viewportHeight - nodeHeight - padding; y += gridStep) {
-          let minDist = Infinity;
-          for (const pos of placedPositions) {
-            const dist = Math.sqrt(Math.pow(x - pos.x, 2) + Math.pow(y - pos.y, 2));
-            minDist = Math.min(minDist, dist);
-          }
-          if (minDist > bestDistance) {
-            bestDistance = minDist;
-            bestX = x;
-            bestY = y;
-          }
-        }
-      }
-
+  layerNums.forEach(l => {
+    const layerBlocks = sortLayerBlocks(byLayer.get(l)!, outEdges, inDeg);
+    const totalH = layerHeight(layerBlocks.length);
+    layerBlocks.forEach((block, i) => {
       result.push({
         ...block,
-        x: bestX,
-        y: bestY,
+        x: l * (NODE_W + GAP_X),
+        y: i * (NODE_H + GAP_Y) - totalH / 2,
       });
-      placedPositions.push({ x: bestX, y: bestY });
-    }
+    });
   });
+
+  // Place isolated nodes in a row below the connected graph
+  if (isolated.length > 0) {
+    const maxLayer = layerNums.length > 0 ? Math.max(...layerNums) : 0;
+    const maxLayerSize = layerNums.reduce(
+      (m, l) => Math.max(m, byLayer.get(l)!.length), 0,
+    );
+    const bottomY = (maxLayerSize / 2 + 1) * (NODE_H + GAP_Y);
+
+    isolated.forEach((block, i) => {
+      result.push({
+        ...block,
+        x: i * (NODE_W + GAP_X),
+        y: bottomY + NODE_H + GAP_Y * 2,
+      });
+    });
+    void maxLayer; // used implicitly via layerNums
+  }
 
   return result;
 }
 
-// Center all blocks within viewport
 function centerBlocksInViewport(blocks: ComponentBlock[]): ComponentBlock[] {
   if (blocks.length === 0) return blocks;
-  
-  const nodeWidth = 200; // Approximate node width
-  const nodeHeight = 250; // Approximate node height
-  
-  // Calculate bounding box including node dimensions
-  let minX = Infinity;
-  let minY = Infinity;
-  let maxX = -Infinity;
-  let maxY = -Infinity;
-  
-  blocks.forEach(block => {
-    minX = Math.min(minX, block.x);
-    minY = Math.min(minY, block.y);
-    maxX = Math.max(maxX, block.x + nodeWidth);
-    maxY = Math.max(maxY, block.y + nodeHeight);
+
+  let minX = Infinity, minY = Infinity;
+  let maxX = -Infinity, maxY = -Infinity;
+  blocks.forEach(b => {
+    const size = getLayoutSize(b);
+    minX = Math.min(minX, b.x);
+    minY = Math.min(minY, b.y);
+    maxX = Math.max(maxX, b.x + size.width);
+    maxY = Math.max(maxY, b.y + size.height);
   });
-  
-  // Calculate center of bounding box
-  const centerX = (minX + maxX) / 2;
-  const centerY = (minY + maxY) / 2;
-  
-  // Target viewport center (center of a typical viewport)
-  const viewportCenterX = 1000;
-  const viewportCenterY = 500;
-  
-  // Calculate offset to center
-  const offsetX = viewportCenterX - centerX;
-  const offsetY = viewportCenterY - centerY;
-  
-  // Apply offset to all blocks
-  return blocks.map(block => ({
-    ...block,
-    x: block.x + offsetX,
-    y: block.y + offsetY,
-  }));
+
+  const offsetX = 800 - (minX + maxX) / 2;
+  const offsetY = 500 - (minY + maxY) / 2;
+
+  return blocks.map(b => ({ ...b, x: b.x + offsetX, y: b.y + offsetY }));
 }
 
-// Main layout function
+function getCenterOffset(blocks: ComponentBlock[]): LayoutPoint {
+  if (blocks.length === 0) return { x: 0, y: 0 };
+
+  let minX = Infinity, minY = Infinity;
+  let maxX = -Infinity, maxY = -Infinity;
+  blocks.forEach(b => {
+    const size = getLayoutSize(b);
+    minX = Math.min(minX, b.x);
+    minY = Math.min(minY, b.y);
+    maxX = Math.max(maxX, b.x + size.width);
+    maxY = Math.max(maxY, b.y + size.height);
+  });
+
+  return {
+    x: 800 - (minX + maxX) / 2,
+    y: 500 - (minY + maxY) / 2,
+  };
+}
+
+function applyOffsetToBlocks(blocks: ComponentBlock[], offset: LayoutPoint): ComponentBlock[] {
+  return blocks.map((block) => ({ ...block, x: block.x + offset.x, y: block.y + offset.y }));
+}
+
+function applyOffsetToRoutes(routes: Record<string, LayoutPoint[]>, offset: LayoutPoint): Record<string, LayoutPoint[]> {
+  return Object.fromEntries(
+    Object.entries(routes).map(([id, points]) => [
+      id,
+      points.map((point) => ({ x: point.x + offset.x, y: point.y + offset.y })),
+    ]),
+  );
+}
+
 export function applyLayout(
   _layoutType: LayoutType,
   blocks: ComponentBlock[],
-  connections: ConnectionData[]
+  connections: ConnectionData[],
 ): ComponentBlock[] {
-  // Always use random layout
-  const laidOutBlocks = randomLayout(blocks, connections);
-  
-  // Center all blocks in viewport
-  return centerBlocksInViewport(laidOutBlocks);
+  return centerBlocksInViewport(topologicalLayout(blocks, connections));
+}
+
+export async function applyElkLayout(
+  blocks: ComponentBlock[],
+  connections: ConnectionData[],
+): Promise<ComponentBlock[]> {
+  const result = await applyElkRoutedLayout(blocks, connections);
+  return result.blocks;
+}
+
+export async function applyElkRoutedLayout(
+  blocks: ComponentBlock[],
+  connections: ConnectionData[],
+): Promise<RoutedLayoutResult> {
+  if (blocks.length === 0) return { blocks, edgeRoutes: {} };
+  if (blocks.length > MAX_ELK_NODES || connections.length > MAX_ELK_EDGES) {
+    return { blocks: applyLayout('random', blocks, connections), edgeRoutes: {} };
+  }
+
+  const elk = await getElkInstance();
+  const blockIds = new Set(blocks.map((block) => block.id));
+  const graph = {
+    id: 'architecture',
+    layoutOptions: {
+      'elk.algorithm': 'layered',
+      'elk.direction': 'RIGHT',
+      'elk.layered.spacing.nodeNodeBetweenLayers': '260',
+      'elk.spacing.nodeNode': '120',
+      'elk.layered.nodePlacement.strategy': 'BRANDES_KOEPF',
+      'elk.layered.crossingMinimization.strategy': 'LAYER_SWEEP',
+      'elk.edgeRouting': 'ORTHOGONAL',
+      'elk.layered.unnecessaryBendpoints': 'true',
+      'elk.layered.mergeEdges': 'false',
+      'elk.layered.spacing.edgeNodeBetweenLayers': '72',
+      'elk.spacing.edgeNode': '36',
+      'elk.spacing.edgeEdge': '18',
+    },
+    children: blocks.map((block) => ({
+      id: block.id,
+      ...getLayoutSize(block),
+    })),
+    edges: connections
+      .filter((connection) => blockIds.has(connection.from) && blockIds.has(connection.to))
+      .map((connection) => ({
+        id: connection.id,
+        sources: [connection.from],
+        targets: [connection.to],
+      })),
+  };
+
+  const layout = await withTimeout(elk.layout(graph), ELK_LAYOUT_TIMEOUT_MS);
+  const positions = new Map(
+    (layout.children ?? []).map((child) => [
+      child.id,
+      { x: Number(child.x ?? 0), y: Number(child.y ?? 0) },
+    ]),
+  );
+
+  const laidOutBlocks = blocks.map((block) => {
+    const position = positions.get(block.id);
+    return position ? { ...block, x: position.x, y: position.y } : block;
+  });
+
+  const edgeRoutes = Object.fromEntries(
+    (layout.edges ?? []).flatMap((edge) => {
+      const section = edge.sections?.[0];
+      if (!section?.startPoint || !section.endPoint) return [];
+      return [[
+        edge.id,
+        [
+          section.startPoint,
+          ...(section.bendPoints ?? []),
+          section.endPoint,
+        ],
+      ]];
+    }),
+  );
+
+  const offset = getCenterOffset(laidOutBlocks);
+
+  return {
+    blocks: applyOffsetToBlocks(laidOutBlocks, offset),
+    edgeRoutes: applyOffsetToRoutes(edgeRoutes, offset),
+  };
 }

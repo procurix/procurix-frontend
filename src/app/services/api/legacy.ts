@@ -418,16 +418,47 @@ export interface SubsystemConnection {
 }
 
 export interface SubsystemRequirementItem {
+    // Identity
     id: string;
-    subsystem_id: string;
-    requirement_text: string;
-    priority?: string | null;
     req_id: string;
+    req_key?: string | null;
+    subsystem_id: string;
+    design_id?: string | null;
+
+    // Content
+    title?: string | null;
     description: string;
-    criteria: string;
+    requirement_text?: string;
+    rationale?: string | null;
+    acceptance_criteria?: string | null;
+    verification_method?: string | null;
+    verification_status?: string | null;
+    criteria_json?: Record<string, any> | null;
+    criteria?: string;
+
+    // Workflow + audit
+    priority?: string | null;
+    status?: string | null;
+    ai_generated?: boolean;
+    confidence?: number | null;
+    quality_warnings?: string[];
+    stale?: boolean;
+
+    // Chain
+    parent_req_id?: string | null;
+    parent_req_key?: string | null;
+    parent_req_title?: string | null;
+
+    // Mapped parts
+    mapped_part_ids?: string[];
+    source_mpns?: string[];
     mapped_components: string[];
+
+    // Legacy compat fields used by views/tests
     success?: boolean;
     requirement?: SubsystemRequirementItem;
+    created_at?: string | null;
+    updated_at?: string | null;
 }
 
 export interface Requirement {
@@ -1586,7 +1617,9 @@ export async function updateRequirement(
 }
 
 export async function deleteRequirement(designId: string, reqId: string) {
-    return rejectRequirement(designId, reqId, 'Rejected from requirements review UI');
+    return apiJSON(`${BASE_URL}/designs/${designId}/requirements/${encodeURIComponent(reqId)}`, {
+        method: 'DELETE',
+    });
 }
 
 export async function confirmRequirement(designId: string, reqId: string) {
@@ -1819,44 +1852,204 @@ export async function completeSubsystemArchitecture(designId: string): Promise<S
 }
 
 export async function getSubsystemRequirementsBySubsystemId(
-    _designId: string,
-    _subsystemId: string,
-): Promise<SubsystemRequirementsResponse> {
-    void _designId;
-    void _subsystemId;
-    console.warn('[api] getSubsystemRequirementsBySubsystemId: Phase 7 not yet implemented');
-    return { requirements: [] };
+    designId: string,
+    subsystemId: string,
+): Promise<{ subsystem_id: string; requirements: SubsystemRequirementItem[] }> {
+    return apiJSON(`${BASE_URL}/designs/${designId}/subsystems/${subsystemId}/requirements`);
 }
 
-export async function generateSubsystemRequirements(_designId: string, _subsystemId: string): Promise<GenerateSubsystemRequirementsResponse> {
-    void _designId;
-    void _subsystemId;
-    console.warn('[api] generateSubsystemRequirements: Phase 7 not yet implemented');
-    return { requirements: [] as SubsystemRequirementItem[] };
+export async function getAllSubsystemRequirements(designId: string): Promise<{
+    design_id: string;
+    requirements_count: number;
+    requirements_by_subsystem: Record<string, SubsystemRequirementItem[]>;
+    all_requirements: SubsystemRequirementItem[];
+}> {
+    return apiJSON(`${BASE_URL}/designs/${designId}/subsystems/requirements`);
+}
+
+export async function generateSubsystemRequirements(
+    designId: string,
+    subsystemId: string,
+): Promise<{
+    subsystem_id: string;
+    generated_count: number;
+    skipped: boolean;
+    requirements: SubsystemRequirementItem[];
+}> {
+    return apiJSON(`${BASE_URL}/designs/${designId}/subsystems/${subsystemId}/requirements/generate`, {
+        method: 'POST',
+    });
+}
+
+export async function generateAllSubsystemRequirements(designId: string): Promise<{
+    design_id: string;
+    subsystems_processed: number;
+    results: Record<string, { skipped: boolean; reason: string | null; requirements: SubsystemRequirementItem[] }>;
+    requirements_by_subsystem: Record<string, SubsystemRequirementItem[]>;
+}> {
+    return apiJSON(`${BASE_URL}/designs/${designId}/subsystems/requirements/generate-all`, {
+        method: 'POST',
+    });
 }
 
 export async function createSubsystemRequirement(
-    _designId: string,
-    _subsystemIdOrData: string | Partial<SubsystemRequirementItem>,
-    _data?: Partial<SubsystemRequirementItem>,
+    designId: string,
+    subsystemIdOrData: string | Partial<SubsystemRequirementItem>,
+    data?: Partial<SubsystemRequirementItem>,
 ): Promise<{ success: boolean; requirement: SubsystemRequirementItem }> {
-    void _designId;
-    console.warn('[api] createSubsystemRequirement: Phase 7 not yet implemented');
-    const subsystemId = typeof _subsystemIdOrData === 'string'
-        ? _subsystemIdOrData
-        : String(_subsystemIdOrData.subsystem_id ?? '');
-    const data = typeof _subsystemIdOrData === 'string' ? _data : _subsystemIdOrData;
-    const requirement: SubsystemRequirementItem = {
-        id: '',
-        req_id: '',
-        subsystem_id: subsystemId,
-        requirement_text: data?.requirement_text ?? data?.description ?? '',
-        description: data?.description ?? data?.requirement_text ?? '',
-        criteria: typeof data?.criteria === 'string' ? data.criteria : '',
-        mapped_components: data?.mapped_components ?? [],
-        priority: data?.priority ?? 'medium',
+    const subsystemId = typeof subsystemIdOrData === 'string'
+        ? subsystemIdOrData
+        : String(subsystemIdOrData.subsystem_id ?? '');
+    const payload = typeof subsystemIdOrData === 'string' ? data : subsystemIdOrData;
+    const body = {
+        title: payload?.title ?? null,
+        description: payload?.description ?? payload?.requirement_text ?? '',
+        priority: payload?.priority ?? 'must_have',
+        rationale: payload?.rationale ?? null,
+        acceptance_criteria: payload?.acceptance_criteria ?? null,
+        verification_method: payload?.verification_method ?? null,
+        parent_req_id: payload?.parent_req_id ?? null,
+        criteria_json: payload?.criteria_json ?? null,
+        source_mpns: payload?.source_mpns ?? [],
+        parts: payload?.mapped_part_ids ?? [],
+        confidence: payload?.confidence ?? null,
     };
+    const requirement = await apiJSON<SubsystemRequirementItem>(
+        `${BASE_URL}/designs/${designId}/subsystems/${subsystemId}/requirements`,
+        {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify(body),
+        },
+    );
     return { success: true, requirement };
+}
+
+export async function updateSubsystemRequirement(
+    designId: string,
+    reqId: string,
+    fields: Partial<SubsystemRequirementItem>,
+): Promise<SubsystemRequirementItem> {
+    const body: Record<string, unknown> = {};
+    if (fields.title !== undefined) body.title = fields.title;
+    if (fields.description !== undefined) body.description = fields.description;
+    if (fields.priority !== undefined) body.priority = fields.priority;
+    if (fields.rationale !== undefined) body.rationale = fields.rationale;
+    if (fields.acceptance_criteria !== undefined) body.acceptance_criteria = fields.acceptance_criteria;
+    if (fields.verification_method !== undefined) body.verification_method = fields.verification_method;
+    if (fields.parent_req_id !== undefined) body.parent_req_id = fields.parent_req_id;
+    if (fields.criteria_json !== undefined) body.criteria_json = fields.criteria_json;
+    if (fields.source_mpns !== undefined) body.source_mpns = fields.source_mpns;
+    if (fields.mapped_part_ids !== undefined) body.parts = fields.mapped_part_ids;
+    if (fields.confidence !== undefined) body.confidence = fields.confidence;
+    return apiJSON(`${BASE_URL}/designs/${designId}/subsystems/requirements/${reqId}`, {
+        method: 'PATCH',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify(body),
+    });
+}
+
+export async function confirmSubsystemRequirement(
+    designId: string, reqId: string,
+): Promise<SubsystemRequirementItem> {
+    return apiJSON(`${BASE_URL}/designs/${designId}/subsystems/requirements/${reqId}/confirm`, {
+        method: 'POST',
+    });
+}
+
+export async function rejectSubsystemRequirement(
+    designId: string, reqId: string,
+): Promise<SubsystemRequirementItem> {
+    return apiJSON(`${BASE_URL}/designs/${designId}/subsystems/requirements/${reqId}/reject`, {
+        method: 'POST',
+    });
+}
+
+export async function deleteSubsystemRequirement(
+    designId: string, reqId: string,
+): Promise<void> {
+    const res = await apiFetch(`${BASE_URL}/designs/${designId}/subsystems/requirements/${reqId}`, {
+        method: 'DELETE',
+    });
+    if (!res.ok && res.status !== 204) {
+        const text = await res.text();
+        throw new Error(`Delete subsystem requirement failed: ${res.status} ${text}`);
+    }
+}
+
+// ── Review (final roll-up + complete) ────────────────────────────────────────
+
+export interface ReviewSubsystem {
+    subsystem_id: string;
+    subsystem_key?: string | null;
+    name: string;
+    description?: string | null;
+    status: string;
+    topology?: string | null;
+    topology_family?: string | null;
+    confidence?: number | null;
+    user_corrected: boolean;
+    ai_generated: boolean;
+    part_count: number;
+    parts: Array<{
+        design_part_id: string; mpn: string | null; designator: string | null;
+        manufacturer: string | null; category: string | null; classification: string | null;
+        instance_function: string | null; quantity: number; identification_status: string | null;
+    }>;
+    requirements: SubsystemRequirementItem[];
+}
+
+export interface ReviewResponse {
+    design_id: string;
+    project_name: string | null;
+    fsm_state: string;
+    is_complete: boolean;
+    can_complete: boolean;
+    system_profile: {
+        system_type: string | null;
+        primary_function: string | null;
+        architectural_clues: unknown;
+        application_domains: unknown;
+    };
+    standards: string[];
+    parts_summary: {
+        total: number;
+        by_classification: Record<string, number>;
+        parts: ReviewSubsystem['parts'];
+    };
+    subsystems: ReviewSubsystem[];
+    subsystem_count: number;
+    interfaces_count: number;
+    connections: { total: number; by_status: Record<string, number> };
+    design_requirements: {
+        total: number;
+        by_status: Record<string, number>;
+        items: Array<{
+            req_id: string; req_key?: string | null; title?: string | null;
+            description?: string | null; category?: string | null; priority?: string | null;
+            status: string; ai_generated?: boolean; confidence?: number | null;
+            verification_method?: string | null;
+            child_subsystem_req_count: number; child_subsystem_req_ids: string[];
+        }>;
+    };
+    subsystem_requirements: {
+        total: number;
+        by_status: Record<string, number>;
+        with_parent: number;
+        stale: number;
+    };
+}
+
+export async function getReview(designId: string): Promise<ReviewResponse> {
+    return apiJSON(`${BASE_URL}/designs/${designId}/review`);
+}
+
+export async function markDesignComplete(designId: string): Promise<{
+    design_id: string;
+    fsm_state: string;
+    already_complete: boolean;
+}> {
+    return apiJSON(`${BASE_URL}/designs/${designId}/pipeline/complete`, { method: 'POST' });
 }
 
 // Phase 4+ types (stubs filled in as phases complete).

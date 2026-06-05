@@ -6,15 +6,23 @@ import { useQueryParams } from '@/app/shared/hooks/useQueryParams';
 import {
   completeSubsystemArchitecture,
   confirmSubsystem,
+  confirmSubsystemRequirement,
+  createSubsystemRequirement,
+  deleteSubsystemRequirement,
+  generateAllSubsystemRequirements,
+  generateSubsystemRequirements,
   generateSubsystems,
   getSubsystemReadiness,
   getSubsystems,
   moveSubsystemPart,
   rejectSubsystem,
+  rejectSubsystemRequirement,
   updateSubsystem,
   updateSubsystemInterface,
+  updateSubsystemRequirement,
   type SubsystemConnection,
   type SubsystemReadinessResponse,
+  type SubsystemRequirementItem,
   type SubsystemSummary,
 } from '@/app/services/api';
 import type { Component, Subsystem } from '@/app/types';
@@ -34,6 +42,8 @@ function mapSubsystem(row: SubsystemSummary): Subsystem {
     componentIds: partIds.length ? partIds : row.componentIds || row.mpns || row.bom_reference || [],
     parts: row.parts || [],
     requirements: row.requirements || [],
+    subsystem_requirements: (row as unknown as { subsystem_requirements?: SubsystemRequirementItem[] }).subsystem_requirements || [],
+    subsystem_requirements_count: (row as unknown as { subsystem_requirements_count?: number }).subsystem_requirements_count || 0,
     interfaces: row.interfaces || [],
     mpns: row.mpns || row.bom_reference || [],
   };
@@ -74,6 +84,7 @@ export function SubsystemsPage() {
   const [isLoading, setIsLoading] = useState(true);
   const [isGenerating, setIsGenerating] = useState(false);
   const [isCompleting, setIsCompleting] = useState(false);
+  const [isGeneratingSubReqs, setIsGeneratingSubReqs] = useState(false);
   const [error, setError] = useState<string | null>(null);
 
   useEffect(() => {
@@ -217,6 +228,64 @@ export function SubsystemsPage() {
     }
   }, [activeSessionId, navigate]);
 
+  const handleGenerateSubReqs = useCallback(async (subsystemId: string) => {
+    if (!activeSessionId) return;
+    setIsGeneratingSubReqs(true);
+    try {
+      await generateSubsystemRequirements(activeSessionId, subsystemId);
+      await refresh();
+      toast.success('Subsystem requirements generated.');
+    } catch (err) {
+      toast.error(err instanceof Error ? err.message : 'Failed to generate requirements');
+    } finally {
+      setIsGeneratingSubReqs(false);
+    }
+  }, [activeSessionId, refresh]);
+
+  const handleGenerateAllSubReqs = useCallback(async () => {
+    if (!activeSessionId) return;
+    setIsGeneratingSubReqs(true);
+    try {
+      await generateAllSubsystemRequirements(activeSessionId);
+      await refresh();
+      toast.success('Subsystem requirements generated for all confirmed subsystems.');
+    } catch (err) {
+      toast.error(err instanceof Error ? err.message : 'Failed to generate requirements');
+    } finally {
+      setIsGeneratingSubReqs(false);
+    }
+  }, [activeSessionId, refresh]);
+
+  const handleConfirmSubReq = useCallback(async (reqId: string) => {
+    if (!activeSessionId) return;
+    await confirmSubsystemRequirement(activeSessionId, reqId);
+    await refresh();
+  }, [activeSessionId, refresh]);
+
+  const handleRejectSubReq = useCallback(async (reqId: string) => {
+    if (!activeSessionId) return;
+    await rejectSubsystemRequirement(activeSessionId, reqId);
+    await refresh();
+  }, [activeSessionId, refresh]);
+
+  const handleDeleteSubReq = useCallback(async (reqId: string) => {
+    if (!activeSessionId) return;
+    await deleteSubsystemRequirement(activeSessionId, reqId);
+    await refresh();
+  }, [activeSessionId, refresh]);
+
+  const handleUpdateSubReq = useCallback(async (reqId: string, fields: Partial<SubsystemRequirementItem>) => {
+    if (!activeSessionId) return;
+    await updateSubsystemRequirement(activeSessionId, reqId, fields);
+    await refresh();
+  }, [activeSessionId, refresh]);
+
+  const handleCreateSubReq = useCallback(async (subsystemId: string, fields: Partial<SubsystemRequirementItem>) => {
+    if (!activeSessionId) return;
+    await createSubsystemRequirement(activeSessionId, subsystemId, fields);
+    await refresh();
+  }, [activeSessionId, refresh]);
+
   const components = useMemo(() => componentsFromSubsystems(subsystems), [subsystems]);
 
   if (isLoading) {
@@ -262,6 +331,14 @@ export function SubsystemsPage() {
       onUpdateSubsystem={handleUpdateSubsystem}
       onUpdateInterface={handleUpdateInterface}
       onComplete={handleComplete}
+      onGenerateSubReqs={handleGenerateSubReqs}
+      onGenerateAllSubReqs={handleGenerateAllSubReqs}
+      onConfirmSubReq={handleConfirmSubReq}
+      onRejectSubReq={handleRejectSubReq}
+      onDeleteSubReq={handleDeleteSubReq}
+      onUpdateSubReq={handleUpdateSubReq}
+      onCreateSubReq={handleCreateSubReq}
+      isGeneratingSubReqs={isGeneratingSubReqs}
     />
   );
 }

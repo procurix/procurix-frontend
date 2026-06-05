@@ -2,6 +2,7 @@ import { lazy, Suspense } from 'react';
 import { BrowserRouter, Routes, Route, Navigate } from 'react-router-dom';
 import { Toaster } from 'sonner';
 import { SessionProvider } from './context/SessionContext';
+import { ImpactPreviewProvider } from './context/ImpactPreviewContext';
 import { Layout } from './shared/components/Layout';
 
 const LibraryPage = lazy(() => import('./pages/library/LibraryPage').then(module => ({ default: module.LibraryPage })));
@@ -32,6 +33,7 @@ export default function App() {
   return (
     <BrowserRouter>
       <SessionProvider>
+        <ImpactPreviewProvider>
         <Toaster position="top-right" richColors />
         <Suspense fallback={<RouteLoading />}>
           <Routes>
@@ -53,6 +55,7 @@ export default function App() {
             <Route path="*" element={<Navigate to="/" replace />} />
           </Routes>
         </Suspense>
+        </ImpactPreviewProvider>
       </SessionProvider>
     </BrowserRouter>
   );

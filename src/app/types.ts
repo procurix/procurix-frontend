@@ -133,6 +133,8 @@ export interface Subsystem {
   topology_family?: string | null;
   parts?: SubsystemPart[];
   requirements?: SubsystemMappedRequirement[];
+  subsystem_requirements?: import('@/app/services/api').SubsystemRequirementItem[];
+  subsystem_requirements_count?: number;
   interfaces?: SubsystemInterfaceSummary[];
   user_corrected?: boolean;
   ai_generated?: boolean;

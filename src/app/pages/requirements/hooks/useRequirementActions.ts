@@ -5,6 +5,7 @@ import {
   confirmAllRequirements,
   confirmRequirement,
   createRequirement,
+  deleteRequirement,
   getPartSpecs,
   getRequirementDetail,
   proposeRequirementEdit,
@@ -17,6 +18,7 @@ import {
 } from '@/app/services/api';
 import type { DraftRequirement, RequirementReviewBlocker, ReviewFilter } from '../types';
 import { normalizeRequirementForUi } from '../utils';
+import { ImpactCancelledError, useImpactPreview } from '@/app/context/ImpactPreviewContext';
 
 interface UseRequirementActionsArgs {
   sessionId?: string | null;
@@ -43,6 +45,7 @@ export function useRequirementActions({
   setReviewFilter,
   onRequirementsComplete,
 }: UseRequirementActionsArgs) {
+  const { withImpactPreview } = useImpactPreview();
   const [savingRequirementId, setSavingRequirementId] = useState<string | null>(null);
   const [traceMpn, setTraceMpn] = useState<string | null>(null);
   const [partSpecs, setPartSpecs] = useState<Record<string, PartSpecEvidence>>({});
@@ -104,14 +107,55 @@ export function useRequirementActions({
     }
     setSavingRequirementId(req.req_id);
     try {
-      await rejectRequirement(sessionId, req.req_id, reason.trim());
+      const result = await withImpactPreview<{ children_deleted?: number; children_flagged?: number } | null>({
+        action: 'reject_requirement',
+        target: { id: req.req_id },
+        designId: sessionId,
+        verb: `Reject ${req.req_key || req.req_id}`,
+        apply: async () => {
+          const r = await rejectRequirement(sessionId, req.req_id, reason.trim()) as { cascade?: { children_deleted?: number; children_flagged?: number } };
+          return r.cascade || null;
+        },
+      });
       setRequirements(prev => prev.filter(item => item.req_id !== req.req_id));
       setSelectedId(prev => prev === req.req_id ? null : prev);
       setRejectingRequirement(null);
       setRejectReason('');
-      toast.success('Requirement rejected');
+      const cascadeMsg = result && ((result.children_deleted || 0) + (result.children_flagged || 0) > 0)
+        ? ` (${result.children_deleted || 0} child reqs deleted, ${result.children_flagged || 0} flagged)`
+        : '';
+      toast.success(`Requirement rejected${cascadeMsg}`);
     } catch (error) {
+      if (error instanceof ImpactCancelledError) return;
       toast.error(error instanceof Error ? error.message : 'Failed to reject requirement');
+    } finally {
+      setSavingRequirementId(null);
+    }
+  };
+
+  const handleDelete = async (req: APIRequirement) => {
+    if (!sessionId) return;
+    setSavingRequirementId(req.req_id);
+    try {
+      const result = await withImpactPreview<{ children_deleted?: number; children_flagged?: number } | null>({
+        action: 'delete_requirement',
+        target: { id: req.req_id },
+        designId: sessionId,
+        verb: `Delete ${req.req_key || req.req_id}`,
+        apply: async () => {
+          const r = await deleteRequirement(sessionId, req.req_id) as { cascade?: { children_deleted?: number; children_flagged?: number } };
+          return r.cascade || null;
+        },
+      });
+      setRequirements(prev => prev.filter(item => item.req_id !== req.req_id));
+      setSelectedId(prev => prev === req.req_id ? null : prev);
+      const cascadeMsg = result && ((result.children_deleted || 0) + (result.children_flagged || 0) > 0)
+        ? ` (${result.children_deleted || 0} child reqs deleted, ${result.children_flagged || 0} flagged)`
+        : '';
+      toast.success(`Requirement deleted${cascadeMsg}`);
+    } catch (error) {
+      if (error instanceof ImpactCancelledError) return;
+      toast.error(error instanceof Error ? error.message : 'Failed to delete requirement');
     } finally {
       setSavingRequirementId(null);
     }
@@ -121,11 +165,18 @@ export function useRequirementActions({
     if (!sessionId) return;
     setSavingRequirementId(reqId);
     try {
-      const result = await updateRequirement(sessionId, reqId, data, undefined, undefined, setCurrentStage);
+      const result = await withImpactPreview<Awaited<ReturnType<typeof updateRequirement>>>({
+        action: 'patch_requirement',
+        target: { id: reqId, patch: data },
+        designId: sessionId,
+        verb: `Save edit to ${reqId}`,
+        apply: () => updateRequirement(sessionId, reqId, data, undefined, undefined, setCurrentStage),
+      });
       upsertRequirement(result.requirement);
       clearRequirementHistory(reqId);
       toast.success('Requirement updated');
     } catch (error) {
+      if (error instanceof ImpactCancelledError) return;
       toast.error(error instanceof Error ? error.message : 'Failed to update requirement');
     } finally {
       setSavingRequirementId(null);
@@ -239,6 +290,7 @@ export function useRequirementActions({
     historyByRequirement,
     handleApprove,
     handleReject,
+    handleDelete,
     handleSave,
     handleCreateRequirement,
     openTraceability,

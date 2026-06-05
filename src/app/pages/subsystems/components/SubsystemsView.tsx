@@ -1,12 +1,12 @@
 import { useEffect, useMemo, useState } from 'react';
-import { AlertCircle, AlertTriangle, CheckCircle2, GitBranch, Layers, MoveRight, Pencil, RefreshCw, Save, Shield, X, XCircle } from 'lucide-react';
+import { AlertCircle, AlertTriangle, CheckCircle2, GitBranch, Layers, MoveRight, Pencil, Plus, RefreshCw, Save, Shield, Sparkles, Trash2, X, XCircle } from 'lucide-react';
 import { toast } from 'sonner';
 import { Button } from '@/app/shared/components/ui/button';
 import { Badge } from '@/app/shared/components/ui/badge';
 import { Input } from '@/app/shared/components/ui/input';
 import { Textarea } from '@/app/shared/components/ui/textarea';
 import type { Component, Subsystem, SubsystemInterfaceSummary, SubsystemMappedRequirement, SubsystemPart } from '@/app/types';
-import type { SubsystemConnection, SubsystemReadinessResponse } from '@/app/services/api';
+import type { SubsystemConnection, SubsystemReadinessResponse, SubsystemRequirementItem } from '@/app/services/api';
 import { SubsystemDiagramView } from './SubsystemDiagramView';
 
 interface SubsystemsViewProps {
@@ -35,6 +35,40 @@ interface SubsystemsViewProps {
     payload: { signal_type?: string | null; description?: string | null },
   ) => Promise<void> | void;
   onComplete: () => Promise<void> | void;
+  // Subsystem requirements
+  onGenerateSubReqs?: (subsystemId: string) => Promise<void> | void;
+  onGenerateAllSubReqs?: () => Promise<void> | void;
+  onConfirmSubReq?: (reqId: string) => Promise<void> | void;
+  onRejectSubReq?: (reqId: string) => Promise<void> | void;
+  onDeleteSubReq?: (reqId: string) => Promise<void> | void;
+  onUpdateSubReq?: (reqId: string, fields: Partial<SubsystemRequirementItem>) => Promise<void> | void;
+  onCreateSubReq?: (subsystemId: string, fields: Partial<SubsystemRequirementItem>) => Promise<void> | void;
+  isGeneratingSubReqs?: boolean;
+}
+
+type SubReqDraft = {
+  title: string;
+  description: string;
+  priority: string;
+  acceptance_criteria: string;
+  verification_method: string;
+  parent_req_id: string;
+  mapped_part_ids: string[];
+};
+
+const VERIFICATION_METHOD_OPTIONS = ['inspection', 'analysis', 'test', 'simulation', 'review'];
+const PRIORITY_OPTIONS = ['must_have', 'should_have', 'nice_to_have'];
+
+function subReqDraft(req?: Partial<SubsystemRequirementItem>): SubReqDraft {
+  return {
+    title: req?.title || '',
+    description: req?.description || '',
+    priority: req?.priority || 'must_have',
+    acceptance_criteria: req?.acceptance_criteria || '',
+    verification_method: req?.verification_method || '',
+    parent_req_id: req?.parent_req_id || '',
+    mapped_part_ids: req?.mapped_part_ids || [],
+  };
 }
 
 function statusTone(status?: string) {
@@ -103,7 +137,18 @@ export function SubsystemsView({
   onUpdateSubsystem,
   onUpdateInterface,
   onComplete,
+  onGenerateSubReqs,
+  onGenerateAllSubReqs,
+  onConfirmSubReq,
+  onRejectSubReq,
+  onDeleteSubReq,
+  onUpdateSubReq,
+  onCreateSubReq,
+  isGeneratingSubReqs,
 }: SubsystemsViewProps) {
+  const [editingSubReqId, setEditingSubReqId] = useState<string | null>(null);
+  const [creatingSubReq, setCreatingSubReq] = useState(false);
+  const [subReqEditDraft, setSubReqEditDraft] = useState<SubReqDraft | null>(null);
   const activeSubsystems = useMemo(
     () => subsystems.filter((subsystem) => subsystem.status !== 'rejected'),
     [subsystems],
@@ -221,6 +266,21 @@ export function SubsystemsView({
               <GitBranch className="mr-2 h-4 w-4" />
               {isGenerating ? 'Generating...' : 'Regenerate'}
             </Button>
+            {onGenerateAllSubReqs && (
+              <Button
+                variant="outline"
+                onClick={() => void runAction('gen-all-sub-reqs', () => onGenerateAllSubReqs())}
+                disabled={Boolean(isGeneratingSubReqs) || Boolean(busyAction) || !activeSubsystems.some((s) => s.status === 'confirmed')}
+                title={
+                  activeSubsystems.some((s) => s.status === 'confirmed')
+                    ? 'Generate subsystem requirements for all confirmed subsystems'
+                    : 'Confirm at least one subsystem first'
+                }
+              >
+                <Sparkles className="mr-2 h-4 w-4" />
+                {isGeneratingSubReqs ? 'Generating reqs...' : 'Generate Requirements (all)'}
+              </Button>
+            )}
             <Button onClick={() => void runAction('complete', onComplete)} disabled={!canComplete || isCompleting || Boolean(busyAction)}>
               <CheckCircle2 className="mr-2 h-4 w-4" />
               {isCompleting ? 'Completing...' : 'Complete Subsystem Architecture'}
@@ -524,7 +584,10 @@ export function SubsystemsView({
 
                       <aside className="space-y-5">
                         <div className="rounded-lg border border-slate-200 p-4">
-                          <div className="mb-3 text-sm font-semibold text-slate-950">Mapped Requirements</div>
+                          <div className="mb-3 text-sm font-semibold text-slate-950">Mapped Design Requirements</div>
+                          <div className="mb-2 text-[10px] uppercase tracking-wide text-slate-500">
+                            Design-level requirements whose source MPNs overlap this subsystem.
+                          </div>
                           <div className="space-y-2">
                             {(selectedSubsystem.requirements || []).map((requirement: SubsystemMappedRequirement) => (
                               <div key={requirement.req_id || requirement.id} className="rounded border border-slate-100 bg-slate-50 p-2">
@@ -541,6 +604,68 @@ export function SubsystemsView({
                             )}
                           </div>
                         </div>
+
+                        <SubsystemRequirementsPanel
+                          subsystem={selectedSubsystem}
+                          isConfirmed={selectedSubsystem.status === 'confirmed'}
+                          isGeneratingSubReqs={Boolean(isGeneratingSubReqs)}
+                          busyAction={busyAction}
+                          editingSubReqId={editingSubReqId}
+                          subReqEditDraft={subReqEditDraft}
+                          creatingSubReq={creatingSubReq}
+                          onStartEdit={(req) => {
+                            setEditingSubReqId(req.req_id);
+                            setSubReqEditDraft(subReqDraft(req));
+                            setCreatingSubReq(false);
+                          }}
+                          onStartCreate={() => {
+                            setEditingSubReqId(null);
+                            setSubReqEditDraft(subReqDraft());
+                            setCreatingSubReq(true);
+                          }}
+                          onCancel={() => {
+                            setEditingSubReqId(null);
+                            setCreatingSubReq(false);
+                            setSubReqEditDraft(null);
+                          }}
+                          onDraftChange={setSubReqEditDraft}
+                          onSaveDraft={async () => {
+                            if (!subReqEditDraft) return;
+                            if (!subReqEditDraft.description.trim()) {
+                              toast.error('Description is required');
+                              return;
+                            }
+                            const fields: Partial<SubsystemRequirementItem> = {
+                              title: subReqEditDraft.title.trim() || null,
+                              description: subReqEditDraft.description.trim(),
+                              priority: subReqEditDraft.priority,
+                              acceptance_criteria: subReqEditDraft.acceptance_criteria.trim() || null,
+                              verification_method: subReqEditDraft.verification_method || null,
+                              parent_req_id: subReqEditDraft.parent_req_id || null,
+                              mapped_part_ids: subReqEditDraft.mapped_part_ids,
+                            };
+                            if (creatingSubReq && onCreateSubReq) {
+                              await runAction('create-sub-req', () =>
+                                onCreateSubReq(selectedSubsystem.id, fields));
+                              setCreatingSubReq(false);
+                              setSubReqEditDraft(null);
+                            } else if (editingSubReqId && onUpdateSubReq) {
+                              await runAction(`edit-sub-req-${editingSubReqId}`, () =>
+                                onUpdateSubReq(editingSubReqId, fields));
+                              setEditingSubReqId(null);
+                              setSubReqEditDraft(null);
+                            }
+                          }}
+                          onConfirm={(reqId) =>
+                            onConfirmSubReq && runAction(`confirm-sub-req-${reqId}`, () => onConfirmSubReq(reqId))}
+                          onReject={(reqId) =>
+                            onRejectSubReq && runAction(`reject-sub-req-${reqId}`, () => onRejectSubReq(reqId))}
+                          onDelete={(reqId) =>
+                            onDeleteSubReq && runAction(`delete-sub-req-${reqId}`, () => onDeleteSubReq(reqId))}
+                          onGenerate={() =>
+                            onGenerateSubReqs && runAction(`gen-sub-reqs-${selectedSubsystem.id}`, () =>
+                              onGenerateSubReqs(selectedSubsystem.id))}
+                        />
 
                         <div className="rounded-lg border border-slate-200 p-4">
                           <div className="mb-3 text-sm font-semibold text-slate-950">Interfaces</div>
@@ -628,6 +753,308 @@ export function SubsystemsView({
             </main>
           </div>
         )}
+      </div>
+    </div>
+  );
+}
+
+// ── Subsystem Requirements panel ─────────────────────────────────────────────
+
+interface SubsystemRequirementsPanelProps {
+  subsystem: Subsystem;
+  isConfirmed: boolean;
+  isGeneratingSubReqs: boolean;
+  busyAction: string | null;
+  editingSubReqId: string | null;
+  subReqEditDraft: SubReqDraft | null;
+  creatingSubReq: boolean;
+  onStartEdit: (req: SubsystemRequirementItem) => void;
+  onStartCreate: () => void;
+  onCancel: () => void;
+  onDraftChange: (draft: SubReqDraft | null) => void;
+  onSaveDraft: () => Promise<void> | void;
+  onConfirm: (reqId: string) => Promise<void> | void;
+  onReject: (reqId: string) => Promise<void> | void;
+  onDelete: (reqId: string) => Promise<void> | void;
+  onGenerate: () => Promise<void> | void;
+}
+
+function priorityTone(priority?: string | null) {
+  if (priority === 'must_have') return 'bg-red-50 text-red-700 border-red-200';
+  if (priority === 'should_have') return 'bg-amber-50 text-amber-700 border-amber-200';
+  return 'bg-slate-100 text-slate-600 border-slate-200';
+}
+
+function reqStatusTone(status?: string | null) {
+  if (status === 'confirmed') return 'bg-emerald-50 text-emerald-700 border-emerald-200';
+  if (status === 'rejected') return 'bg-gray-100 text-gray-500 border-gray-200';
+  return 'bg-amber-50 text-amber-700 border-amber-200';
+}
+
+function SubsystemRequirementsPanel({
+  subsystem,
+  isConfirmed,
+  isGeneratingSubReqs,
+  busyAction,
+  editingSubReqId,
+  subReqEditDraft,
+  creatingSubReq,
+  onStartEdit,
+  onStartCreate,
+  onCancel,
+  onDraftChange,
+  onSaveDraft,
+  onConfirm,
+  onReject,
+  onDelete,
+  onGenerate,
+}: SubsystemRequirementsPanelProps) {
+  const reqs = (subsystem.subsystem_requirements || []).filter((r) => r.status !== 'rejected');
+  const memberParts = subsystem.parts || [];
+
+  return (
+    <div className="rounded-lg border border-slate-200 p-4">
+      <div className="mb-3 flex items-center justify-between gap-2">
+        <div>
+          <div className="text-sm font-semibold text-slate-950">Subsystem Requirements</div>
+          <div className="text-[10px] uppercase tracking-wide text-slate-500">
+            Requirements scoped to this subsystem
+          </div>
+        </div>
+        <Badge variant="outline">{reqs.length}</Badge>
+      </div>
+
+      {!isConfirmed ? (
+        <div className="rounded border border-dashed border-slate-300 bg-slate-50 p-3 text-xs text-slate-600">
+          Confirm this subsystem before generating its requirements.
+        </div>
+      ) : (
+        <div className="mb-3 flex flex-wrap gap-2">
+          <Button
+            size="sm"
+            onClick={() => void onGenerate()}
+            disabled={isGeneratingSubReqs || Boolean(busyAction)}
+            title="Generate subsystem requirements via AI"
+          >
+            <Sparkles className="mr-1.5 h-3 w-3" />
+            {isGeneratingSubReqs ? 'Generating...' : reqs.length > 0 ? 'Regenerate' : 'Generate'}
+          </Button>
+          <Button size="sm" variant="outline" onClick={onStartCreate} disabled={Boolean(busyAction)}>
+            <Plus className="mr-1.5 h-3 w-3" />
+            Add manually
+          </Button>
+        </div>
+      )}
+
+      {(creatingSubReq || editingSubReqId) && subReqEditDraft && (
+        <SubReqEditCard
+          draft={subReqEditDraft}
+          memberParts={memberParts}
+          isCreating={creatingSubReq}
+          busy={Boolean(busyAction)}
+          onChange={onDraftChange}
+          onSave={onSaveDraft}
+          onCancel={onCancel}
+        />
+      )}
+
+      <div className="space-y-2">
+        {reqs.map((req) => (
+          <SubReqRow
+            key={req.req_id}
+            req={req}
+            busy={Boolean(busyAction)}
+            editing={editingSubReqId === req.req_id}
+            onEdit={() => onStartEdit(req)}
+            onConfirm={() => void onConfirm(req.req_id)}
+            onReject={() => void onReject(req.req_id)}
+            onDelete={() => void onDelete(req.req_id)}
+          />
+        ))}
+        {reqs.length === 0 && !creatingSubReq && (
+          <div className="text-xs text-slate-500">
+            {isConfirmed
+              ? 'No subsystem requirements yet. Generate or add one above.'
+              : 'Confirm this subsystem to start generating its requirements.'}
+          </div>
+        )}
+      </div>
+    </div>
+  );
+}
+
+function SubReqRow({
+  req, busy, editing, onEdit, onConfirm, onReject, onDelete,
+}: {
+  req: SubsystemRequirementItem;
+  busy: boolean;
+  editing: boolean;
+  onEdit: () => void;
+  onConfirm: () => void;
+  onReject: () => void;
+  onDelete: () => void;
+}) {
+  if (editing) {
+    return null; // Edit form is rendered above; skip the read-only row while editing.
+  }
+  return (
+    <div className={`rounded border ${req.stale ? 'border-orange-300 bg-orange-50' : 'border-slate-100 bg-slate-50'} p-2.5`}>
+      <div className="flex items-start justify-between gap-2">
+        <div className="min-w-0 flex-1">
+          <div className="flex flex-wrap items-center gap-1.5">
+            <span className="text-xs font-semibold text-slate-800">{req.req_key || 'REQ'}</span>
+            <Badge variant="outline" className={`text-[10px] ${reqStatusTone(req.status)}`}>{req.status || 'suggested'}</Badge>
+            {req.priority && (
+              <Badge variant="outline" className={`text-[10px] ${priorityTone(req.priority)}`}>{req.priority.replace('_', ' ')}</Badge>
+            )}
+            {req.stale && (
+              <Badge variant="outline" className="text-[10px] bg-orange-100 text-orange-800 border-orange-200">stale</Badge>
+            )}
+          </div>
+          <div className="mt-1 text-xs font-medium text-slate-900">{req.title || '(untitled)'}</div>
+          <div className="mt-0.5 text-xs text-slate-600 line-clamp-3">{req.description}</div>
+          {req.parent_req_id && (
+            <div className="mt-1 text-[10px] text-blue-700">
+              ↳ implements design req: {req.parent_req_key || req.parent_req_id}
+              {req.parent_req_title ? ` — ${req.parent_req_title}` : ''}
+            </div>
+          )}
+          {req.acceptance_criteria && (
+            <div className="mt-1 text-[10px] text-slate-500">
+              <span className="font-semibold">Acceptance:</span> {req.acceptance_criteria}
+            </div>
+          )}
+          {req.verification_method && (
+            <div className="mt-0.5 text-[10px] text-slate-500">
+              <span className="font-semibold">Verify by:</span> {req.verification_method}
+            </div>
+          )}
+          {(req.quality_warnings || []).length > 0 && (
+            <div className="mt-1 flex flex-wrap gap-1">
+              {(req.quality_warnings || []).map((w) => (
+                <span key={w} className="rounded bg-amber-100 px-1 text-[9px] text-amber-800">{w}</span>
+              ))}
+            </div>
+          )}
+        </div>
+        <div className="flex flex-col gap-1">
+          {req.status !== 'confirmed' && (
+            <Button size="sm" variant="ghost" className="h-6 w-6 p-0" onClick={onConfirm} disabled={busy} title="Confirm">
+              <CheckCircle2 className="h-3.5 w-3.5 text-emerald-600" />
+            </Button>
+          )}
+          {req.status !== 'rejected' && (
+            <Button size="sm" variant="ghost" className="h-6 w-6 p-0" onClick={onReject} disabled={busy} title="Reject">
+              <XCircle className="h-3.5 w-3.5 text-slate-500" />
+            </Button>
+          )}
+          <Button size="sm" variant="ghost" className="h-6 w-6 p-0" onClick={onEdit} disabled={busy} title="Edit">
+            <Pencil className="h-3.5 w-3.5 text-slate-600" />
+          </Button>
+          <Button size="sm" variant="ghost" className="h-6 w-6 p-0" onClick={onDelete} disabled={busy} title="Delete">
+            <Trash2 className="h-3.5 w-3.5 text-red-600" />
+          </Button>
+        </div>
+      </div>
+    </div>
+  );
+}
+
+function SubReqEditCard({
+  draft, memberParts, isCreating, busy, onChange, onSave, onCancel,
+}: {
+  draft: SubReqDraft;
+  memberParts: SubsystemPart[];
+  isCreating: boolean;
+  busy: boolean;
+  onChange: (d: SubReqDraft | null) => void;
+  onSave: () => Promise<void> | void;
+  onCancel: () => void;
+}) {
+  return (
+    <div className="mb-3 rounded border border-blue-200 bg-blue-50 p-3">
+      <div className="mb-2 text-xs font-semibold text-blue-900">
+        {isCreating ? 'New subsystem requirement' : 'Edit subsystem requirement'}
+      </div>
+      <div className="space-y-2">
+        <Input
+          value={draft.title}
+          onChange={(e) => onChange({ ...draft, title: e.target.value })}
+          placeholder="Title"
+          className="h-8 text-xs"
+        />
+        <Textarea
+          value={draft.description}
+          onChange={(e) => onChange({ ...draft, description: e.target.value })}
+          placeholder="Description (required)"
+          className="min-h-[60px] text-xs"
+        />
+        <div className="grid grid-cols-2 gap-2">
+          <select
+            value={draft.priority}
+            onChange={(e) => onChange({ ...draft, priority: e.target.value })}
+            className="h-8 rounded-md border border-slate-300 bg-white px-2 text-xs"
+          >
+            {PRIORITY_OPTIONS.map((p) => <option key={p} value={p}>{p.replace('_', ' ')}</option>)}
+          </select>
+          <select
+            value={draft.verification_method}
+            onChange={(e) => onChange({ ...draft, verification_method: e.target.value })}
+            className="h-8 rounded-md border border-slate-300 bg-white px-2 text-xs"
+          >
+            <option value="">verification method</option>
+            {VERIFICATION_METHOD_OPTIONS.map((v) => <option key={v} value={v}>{v}</option>)}
+          </select>
+        </div>
+        <Textarea
+          value={draft.acceptance_criteria}
+          onChange={(e) => onChange({ ...draft, acceptance_criteria: e.target.value })}
+          placeholder="Acceptance criteria"
+          className="min-h-[50px] text-xs"
+        />
+        <Input
+          value={draft.parent_req_id}
+          onChange={(e) => onChange({ ...draft, parent_req_id: e.target.value })}
+          placeholder="Parent design req_id (optional)"
+          className="h-8 text-xs"
+        />
+        <div>
+          <div className="text-[10px] font-semibold uppercase text-slate-500">Mapped parts</div>
+          <div className="mt-1 max-h-24 overflow-y-auto rounded border border-slate-200 bg-white p-1.5">
+            {memberParts.length === 0 ? (
+              <div className="text-[11px] text-slate-500">No member parts.</div>
+            ) : (
+              memberParts.map((p) => {
+                const pid = String(p.design_part_id || '');
+                const checked = draft.mapped_part_ids.includes(pid);
+                return (
+                  <label key={pid} className="flex items-center gap-1.5 text-[11px]">
+                    <input
+                      type="checkbox"
+                      checked={checked}
+                      onChange={(e) => {
+                        const next = e.target.checked
+                          ? [...draft.mapped_part_ids, pid]
+                          : draft.mapped_part_ids.filter((id) => id !== pid);
+                        onChange({ ...draft, mapped_part_ids: next });
+                      }}
+                    />
+                    {p.part_number || p.mpn || pid}
+                  </label>
+                );
+              })
+            )}
+          </div>
+        </div>
+        <div className="flex justify-end gap-2 pt-1">
+          <Button size="sm" variant="outline" onClick={onCancel} disabled={busy}>
+            Cancel
+          </Button>
+          <Button size="sm" onClick={() => void onSave()} disabled={busy}>
+            <Save className="mr-1.5 h-3 w-3" />
+            {isCreating ? 'Create' : 'Save'}
+          </Button>
+        </div>
       </div>
     </div>
   );

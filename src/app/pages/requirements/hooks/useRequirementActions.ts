@@ -18,7 +18,7 @@ import {
 } from '@/app/services/api';
 import type { DraftRequirement, RequirementReviewBlocker, ReviewFilter } from '../types';
 import { normalizeRequirementForUi } from '../utils';
-import { ImpactCancelledError, useImpactPreview } from '@/app/context/ImpactPreviewContext';
+import { ImpactCancelledError, useImpactPreview } from '@/app/context/impactPreview';
 
 interface UseRequirementActionsArgs {
   sessionId?: string | null;

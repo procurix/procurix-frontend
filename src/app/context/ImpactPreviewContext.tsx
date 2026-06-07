@@ -1,66 +1,18 @@
-import { createContext, useCallback, useContext, useMemo, useRef, useState, type ReactNode } from 'react';
+import { useCallback, useMemo, useRef, useState, type ReactNode } from 'react';
 import { AlertTriangle, ChevronRight, Trash2, X } from 'lucide-react';
 import { Button } from '@/app/shared/components/ui/button';
 import { Badge } from '@/app/shared/components/ui/badge';
-
-// ── Types matching the backend impact report ─────────────────────────────────
-
-export type EffectKind = 'hard_delete' | 'flag' | 'unlink_and_flag' | 'no_change';
-
-export interface ImpactItem {
-  entity_type: string;
-  entity_id: string;
-  label: string;
-  parent_context: string | null;
-  current_state: string;
-  predicted_effect: EffectKind;
-  effect_detail: string;
-  blocking: boolean;
-}
-
-export interface ImpactReport {
-  action: string;
-  target: { type: string; id: string; label: string };
-  downstream: ImpactItem[];
-  summary: {
-    total_affected: number;
-    by_entity_type: Record<string, number>;
-    by_predicted_effect: Record<string, number>;
-    by_context: Record<string, number>;
-    has_blockers: boolean;
-    is_empty: boolean;
-  };
-}
-
-// ── Public API ───────────────────────────────────────────────────────────────
-
-export interface WithImpactPreviewOptions<T> {
-  action: string;
-  target: Record<string, unknown>;
-  designId: string;
-  /** Human-readable label for the verb (e.g. "Reject", "Delete", "Save edit"). */
-  verb: string;
-  apply: () => Promise<T>;
-  /** If true, even an empty downstream forces the popup (useful for debug). */
-  forcePopup?: boolean;
-}
-
-interface ImpactPreviewContextValue {
-  /** Calls preview, shows modal if needed, then applies. Throws on cancel. */
-  withImpactPreview: <T>(opts: WithImpactPreviewOptions<T>) => Promise<T>;
-}
-
-const ImpactPreviewContext = createContext<ImpactPreviewContextValue | null>(null);
-
-export function useImpactPreview() {
-  const ctx = useContext(ImpactPreviewContext);
-  if (!ctx) throw new Error('useImpactPreview must be used within ImpactPreviewProvider');
-  return ctx;
-}
-
-// ── Provider + modal ─────────────────────────────────────────────────────────
-
-const BASE_URL = 'http://localhost:8090/api';
+import {
+  previewImpact,
+  type EffectKind,
+  type ImpactItem,
+  type ImpactReport,
+} from '@/app/services/api';
+import {
+  ImpactCancelledError,
+  ImpactPreviewContext,
+  type WithImpactPreviewOptions,
+} from './impactPreview';
 
 interface PendingDecision {
   report: ImpactReport;
@@ -94,25 +46,13 @@ export function ImpactPreviewProvider({ children }: { children: ReactNode }) {
     }
     inFlight.current = true;
     try {
-      // Step 1: preview
       let report: ImpactReport | null = null;
       try {
-        const res = await fetch(`${BASE_URL}/designs/${opts.designId}/impact/preview`, {
-          method: 'POST',
-          headers: { 'Content-Type': 'application/json' },
-          body: JSON.stringify({ action: opts.action, target: opts.target }),
-        });
-        if (res.ok) {
-          report = await res.json();
-        } else {
-          // Preview failure shouldn't block the mutation — log and proceed.
-          console.warn(`[impact] preview failed: ${res.status}`, await res.text().catch(() => ''));
-        }
+        report = await previewImpact(opts.designId, { action: opts.action, target: opts.target });
       } catch (e) {
         console.warn('[impact] preview network error', e);
       }
 
-      // Step 2: decide whether to show modal
       if (report && (report.downstream.length > 0 || opts.forcePopup)) {
         const proceed = await showModal(report, opts.verb);
         if (!proceed) {
@@ -120,7 +60,6 @@ export function ImpactPreviewProvider({ children }: { children: ReactNode }) {
         }
       }
 
-      // Step 3: apply
       return await opts.apply();
     } finally {
       inFlight.current = false;
@@ -145,15 +84,6 @@ export function ImpactPreviewProvider({ children }: { children: ReactNode }) {
     </ImpactPreviewContext.Provider>
   );
 }
-
-export class ImpactCancelledError extends Error {
-  constructor(verb: string) {
-    super(`User cancelled: ${verb}`);
-    this.name = 'ImpactCancelledError';
-  }
-}
-
-// ── Modal component ──────────────────────────────────────────────────────────
 
 function effectBadge(effect: EffectKind) {
   const map: Record<EffectKind, { label: string; cls: string }> = {

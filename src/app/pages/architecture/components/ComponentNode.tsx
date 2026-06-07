@@ -16,6 +16,10 @@ interface ComponentNodeData extends Component {
   quantity?: number;
   pinout?: Record<string, PinData>;
   activePinNames?: string[];
+  subsystemName?: string;
+  subsystemKey?: string | null;
+  subsystemColor?: string;
+  subsystemWarning?: boolean;
   onOpenModel?: (mpn: string) => void;
 }
 
@@ -328,9 +332,13 @@ export const ComponentNode = (props: NodeProps) => {
       data-architecture-node-id={data.id}
       data-testid={`architecture-node-${data.id}`}
       className={`relative overflow-visible rounded-md border bg-white shadow-sm transition-shadow ${
-        selected ? 'border-blue-500 ring-2 ring-blue-100' : 'border-slate-300'
+        selected
+          ? 'border-blue-500 ring-2 ring-blue-100'
+          : data.subsystemWarning
+            ? 'border-amber-400 ring-2 ring-amber-100'
+            : 'border-slate-300'
       }`}
-      style={{ width: SYMBOL_WIDTH }}
+      style={{ width: SYMBOL_WIDTH, boxShadow: data.subsystemColor ? `inset 4px 0 0 ${data.subsystemColor}` : undefined }}
     >
       <div className="border-b border-slate-300 bg-slate-50 px-4 py-3">
         <div className="flex items-start justify-between gap-3">
@@ -343,6 +351,15 @@ export const ComponentNode = (props: NodeProps) => {
             </div>
           </div>
           <div className="flex shrink-0 items-center gap-1.5">
+            {data.subsystemName && (
+              <span
+                className="max-w-[110px] truncate rounded border border-slate-200 bg-white px-1.5 py-0.5 text-[10px] font-semibold text-slate-600"
+                title={data.subsystemName}
+                style={{ borderColor: data.subsystemColor || undefined }}
+              >
+                {data.subsystemKey || data.subsystemName}
+              </span>
+            )}
             {canOpenModel && (
               <button
                 type="button"

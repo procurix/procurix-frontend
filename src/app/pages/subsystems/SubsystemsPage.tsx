@@ -4,25 +4,38 @@ import { toast } from 'sonner';
 import { useSession } from '@/app/context/SessionContext';
 import { useQueryParams } from '@/app/shared/hooks/useQueryParams';
 import {
+  addSubsystemPart,
   completeSubsystemArchitecture,
   confirmSubsystem,
+  confirmSubsystemInterface,
   confirmSubsystemRequirement,
+  createSubsystem,
   createSubsystemRequirement,
   deleteSubsystemRequirement,
   generateAllSubsystemRequirements,
   generateSubsystemRequirements,
   generateSubsystems,
+  getSubsystemRequirementCoverage,
+  getSubsystemInterfaceEvidence,
   getSubsystemReadiness,
   getSubsystems,
+  mergeSubsystems,
   moveSubsystemPart,
+  regenerateStaleSubsystemRequirements,
+  removeSubsystemPart,
   rejectSubsystem,
+  rejectSubsystemInterface,
   rejectSubsystemRequirement,
+  splitSubsystem,
   updateSubsystem,
   updateSubsystemInterface,
   updateSubsystemRequirement,
   type SubsystemConnection,
+  type SubsystemInterfaceEvidence,
+  type SubsystemRequirementCoverageResponse,
   type SubsystemReadinessResponse,
   type SubsystemRequirementItem,
+  type SubsystemsResponse,
   type SubsystemSummary,
 } from '@/app/services/api';
 import type { Component, Subsystem } from '@/app/types';
@@ -73,6 +86,29 @@ function componentsFromSubsystems(subsystems: Subsystem[]): Component[] {
   return Array.from(byId.values());
 }
 
+function isSubsystemGenerationInProgressError(error: unknown): boolean {
+  return error instanceof Error
+    && error.message.startsWith('409 ')
+    && error.message.includes('Subsystem generation is already running');
+}
+
+const subsystemGenerationRequests = new Map<string, Promise<SubsystemsResponse>>();
+
+function generateSubsystemsOnce(designId: string): Promise<SubsystemsResponse> {
+  const existing = subsystemGenerationRequests.get(designId);
+  if (existing) return existing;
+
+  const request = generateSubsystems(designId).finally(() => {
+    subsystemGenerationRequests.delete(designId);
+  });
+  subsystemGenerationRequests.set(designId, request);
+  return request;
+}
+
+function hasSubsystemGenerationInFlight(designId: string): boolean {
+  return subsystemGenerationRequests.has(designId);
+}
+
 export function SubsystemsPage() {
   const navigate = useNavigate();
   const { sessionId: contextSessionId, setSessionId, refreshTrigger } = useSession();
@@ -81,6 +117,7 @@ export function SubsystemsPage() {
   const [subsystems, setSubsystems] = useState<Subsystem[]>([]);
   const [subsystemConnections, setSubsystemConnections] = useState<SubsystemConnection[]>([]);
   const [readiness, setReadiness] = useState<SubsystemReadinessResponse | null>(null);
+  const [coverage, setCoverage] = useState<SubsystemRequirementCoverageResponse | null>(null);
   const [isLoading, setIsLoading] = useState(true);
   const [isGenerating, setIsGenerating] = useState(false);
   const [isCompleting, setIsCompleting] = useState(false);
@@ -109,9 +146,19 @@ export function SubsystemsPage() {
     const response = await getSubsystems(activeSessionId);
     let next = response;
     if (options?.generateIfEmpty && (response.subsystems_count === 0 || response.subsystems.length === 0)) {
+      const wasAlreadyGenerating = hasSubsystemGenerationInFlight(activeSessionId);
       setIsGenerating(true);
       try {
-        next = await generateSubsystems(activeSessionId);
+        next = await generateSubsystemsOnce(activeSessionId);
+        if (wasAlreadyGenerating) {
+          toast.info('Subsystem generation is already running.');
+        }
+      } catch (err) {
+        if (!isSubsystemGenerationInProgressError(err)) {
+          throw err;
+        }
+        toast.info('Subsystem generation is already running.');
+        next = await getSubsystems(activeSessionId);
       } finally {
         setIsGenerating(false);
       }
@@ -119,6 +166,11 @@ export function SubsystemsPage() {
     setSubsystems(next.subsystems.map(mapSubsystem));
     setSubsystemConnections(next.connections || []);
     setReadiness(await getSubsystemReadiness(activeSessionId));
+    try {
+      setCoverage(await getSubsystemRequirementCoverage(activeSessionId));
+    } catch {
+      setCoverage(null);
+    }
   }, [activeSessionId]);
 
   useEffect(() => {
@@ -150,14 +202,25 @@ export function SubsystemsPage() {
 
   const handleRegenerate = useCallback(async () => {
     if (!activeSessionId) return;
+    const wasAlreadyGenerating = hasSubsystemGenerationInFlight(activeSessionId);
+    if (wasAlreadyGenerating) {
+      toast.info('Subsystem generation is already running.');
+    }
     setIsGenerating(true);
     try {
-      const response = await generateSubsystems(activeSessionId);
+      const response = await generateSubsystemsOnce(activeSessionId);
       setSubsystems(response.subsystems.map(mapSubsystem));
       setSubsystemConnections(response.connections || []);
       setReadiness(await getSubsystemReadiness(activeSessionId));
-      toast.success('Subsystem candidates regenerated.');
+      if (!wasAlreadyGenerating) {
+        toast.success('Subsystem candidates regenerated.');
+      }
     } catch (err) {
+      if (isSubsystemGenerationInProgressError(err)) {
+        toast.info('Subsystem generation is already running.');
+        await refresh();
+        return;
+      }
       toast.error(err instanceof Error ? err.message : 'Failed to regenerate subsystems');
     } finally {
       setIsGenerating(false);
@@ -187,6 +250,59 @@ export function SubsystemsPage() {
     toast.success('Part moved.');
   }, [activeSessionId]);
 
+  const handleCreateSubsystem = useCallback(async (payload: {
+    name: string;
+    description?: string | null;
+    topology?: string | null;
+    topology_family?: string | null;
+  }) => {
+    if (!activeSessionId) return;
+    await createSubsystem(activeSessionId, payload);
+    await refresh();
+    toast.success('Subsystem created.');
+  }, [activeSessionId, refresh]);
+
+  const handleAddPart = useCallback(async (subsystemId: string, designPartId: string) => {
+    if (!activeSessionId) return;
+    await addSubsystemPart(activeSessionId, subsystemId, designPartId);
+    await refresh();
+    toast.success('Part assigned.');
+  }, [activeSessionId, refresh]);
+
+  const handleRemovePart = useCallback(async (subsystemId: string, designPartId: string) => {
+    if (!activeSessionId) return;
+    await removeSubsystemPart(activeSessionId, subsystemId, designPartId);
+    await refresh();
+    toast.success('Part removed.');
+  }, [activeSessionId, refresh]);
+
+  const handleMerge = useCallback(async (payload: {
+    source_subsystem_ids: string[];
+    target_subsystem_id?: string | null;
+    target_name?: string | null;
+  }) => {
+    if (!activeSessionId) return;
+    const response = await mergeSubsystems(activeSessionId, payload);
+    setSubsystems(response.subsystems.map(mapSubsystem));
+    setSubsystemConnections(response.connections || []);
+    setReadiness(await getSubsystemReadiness(activeSessionId));
+    setCoverage(await getSubsystemRequirementCoverage(activeSessionId));
+    toast.success('Subsystems merged.');
+  }, [activeSessionId]);
+
+  const handleSplit = useCallback(async (
+    subsystemId: string,
+    groups: Array<{ name: string; part_ids: string[] }>,
+  ) => {
+    if (!activeSessionId) return;
+    const response = await splitSubsystem(activeSessionId, subsystemId, { groups });
+    setSubsystems(response.subsystems.map(mapSubsystem));
+    setSubsystemConnections(response.connections || []);
+    setReadiness(await getSubsystemReadiness(activeSessionId));
+    setCoverage(await getSubsystemRequirementCoverage(activeSessionId));
+    toast.success('Subsystem split.');
+  }, [activeSessionId]);
+
   const handleUpdateSubsystem = useCallback(async (
     subsystemId: string,
     payload: {
@@ -204,7 +320,16 @@ export function SubsystemsPage() {
 
   const handleUpdateInterface = useCallback(async (
     interfaceId: string,
-    payload: { signal_type?: string | null; description?: string | null },
+    payload: {
+      name?: string | null;
+      interface_type?: string | null;
+      signal_type?: string | null;
+      direction?: string | null;
+      description?: string | null;
+      constraints_json?: Record<string, unknown> | null;
+      verification_method?: string | null;
+      rationale?: string | null;
+    },
   ) => {
     if (!activeSessionId) return;
     await updateSubsystemInterface(activeSessionId, interfaceId, payload);
@@ -251,6 +376,40 @@ export function SubsystemsPage() {
       toast.success('Subsystem requirements generated for all confirmed subsystems.');
     } catch (err) {
       toast.error(err instanceof Error ? err.message : 'Failed to generate requirements');
+    } finally {
+      setIsGeneratingSubReqs(false);
+    }
+  }, [activeSessionId, refresh]);
+
+  const handleConfirmInterface = useCallback(async (interfaceId: string) => {
+    if (!activeSessionId) return;
+    await confirmSubsystemInterface(activeSessionId, interfaceId);
+    await refresh();
+    toast.success('Interface confirmed.');
+  }, [activeSessionId, refresh]);
+
+  const handleRejectInterface = useCallback(async (interfaceId: string) => {
+    if (!activeSessionId) return;
+    await rejectSubsystemInterface(activeSessionId, interfaceId);
+    await refresh();
+    toast.success('Interface rejected.');
+  }, [activeSessionId, refresh]);
+
+  const handleLoadInterfaceEvidence = useCallback(async (interfaceId: string): Promise<SubsystemInterfaceEvidence[]> => {
+    if (!activeSessionId) return [];
+    const response = await getSubsystemInterfaceEvidence(activeSessionId, interfaceId);
+    return response.evidence || [];
+  }, [activeSessionId]);
+
+  const handleRegenerateStaleSubReqs = useCallback(async () => {
+    if (!activeSessionId) return;
+    setIsGeneratingSubReqs(true);
+    try {
+      await regenerateStaleSubsystemRequirements(activeSessionId);
+      await refresh();
+      toast.success('Stale subsystem requirements regenerated.');
+    } catch (err) {
+      toast.error(err instanceof Error ? err.message : 'Failed to regenerate stale requirements');
     } finally {
       setIsGeneratingSubReqs(false);
     }
@@ -321,18 +480,28 @@ export function SubsystemsPage() {
       components={components}
       subsystemConnections={subsystemConnections}
       readiness={readiness}
+      coverage={coverage}
       isGenerating={isGenerating}
       isCompleting={isCompleting}
       onRefresh={() => refresh()}
       onRegenerate={handleRegenerate}
       onConfirm={handleConfirm}
       onReject={handleReject}
+      onCreateSubsystem={handleCreateSubsystem}
+      onAddPart={handleAddPart}
+      onRemovePart={handleRemovePart}
       onMovePart={handleMovePart}
+      onMergeSubsystems={handleMerge}
+      onSplitSubsystem={handleSplit}
       onUpdateSubsystem={handleUpdateSubsystem}
       onUpdateInterface={handleUpdateInterface}
+      onConfirmInterface={handleConfirmInterface}
+      onRejectInterface={handleRejectInterface}
+      onLoadInterfaceEvidence={handleLoadInterfaceEvidence}
       onComplete={handleComplete}
       onGenerateSubReqs={handleGenerateSubReqs}
       onGenerateAllSubReqs={handleGenerateAllSubReqs}
+      onRegenerateStaleSubReqs={handleRegenerateStaleSubReqs}
       onConfirmSubReq={handleConfirmSubReq}
       onRejectSubReq={handleRejectSubReq}
       onDeleteSubReq={handleDeleteSubReq}

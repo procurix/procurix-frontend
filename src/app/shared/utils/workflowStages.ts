@@ -24,7 +24,7 @@ export const WORKFLOW_STAGES: WorkflowStageConfig[] = [
   { id: 'requirements', label: 'Requirements', route: '/requirements', stageNumber: 7 },
   { id: 'architecture', label: 'Architecture', route: '/architecture', stageNumber: 8 },
   { id: 'subsystems', label: 'Subsystems', route: '/subsystems', stageNumber: 9 },
-  { id: 'review', label: 'Review', route: '/completed', stageNumber: 10 },
+  { id: 'review', label: 'Review', route: '/review', stageNumber: 10 },
 ];
 
 export const TOTAL_WORKFLOW_STAGES = WORKFLOW_STAGES.length;

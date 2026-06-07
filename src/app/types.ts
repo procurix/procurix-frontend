@@ -42,6 +42,10 @@ export interface Component {
   // Visual positioning for canvas
   position?: { x: number; y: number };
   subsystemId?: string;
+  subsystemName?: string;
+  subsystemKey?: string | null;
+  subsystemColor?: string;
+  subsystemWarning?: boolean;
 
   // Pinout information (for ICs and components with defined pins)
   pinout?: Record<string, { name: string; type: string; description: string }>;
@@ -104,12 +108,27 @@ export interface SubsystemMappedRequirement {
 
 export interface SubsystemInterfaceSummary {
   id?: string | null;
+  name?: string | null;
   source_subsystem_id?: string;
   target_subsystem_id?: string;
+  source_port_id?: string | null;
+  target_port_id?: string | null;
   source_subsystem?: string;
   target_subsystem?: string;
   interface_type?: string | null;
   signal_type?: string | null;
+  direction?: string | null;
+  status?: 'suggested' | 'confirmed' | 'rejected' | string;
+  ai_generated?: boolean;
+  user_corrected?: boolean;
+  confidence?: number | null;
+  rationale?: string | null;
+  constraints_json?: Record<string, unknown> | null;
+  verification_method?: string | null;
+  is_stale?: boolean;
+  staleness_reason?: string | null;
+  evidence_count?: number;
+  linked_requirements_count?: number;
   primary_type?: string | null;
   description?: string | null;
   connection_types?: string[];
@@ -129,6 +148,15 @@ export interface Subsystem {
   confidence?: number | null;
   rationale?: string | null;
   warnings?: string[];
+  diagnostic_warnings?: string[];
+  evidence?: {
+    part_count?: number;
+    internal_connection_count?: number;
+    shared_net_count?: number;
+    requirement_overlap_count?: number;
+    interface_count?: number;
+    functional_roles?: string[];
+  };
   topology?: string | null;
   topology_family?: string | null;
   parts?: SubsystemPart[];
@@ -138,6 +166,8 @@ export interface Subsystem {
   interfaces?: SubsystemInterfaceSummary[];
   user_corrected?: boolean;
   ai_generated?: boolean;
+  subsystem_key?: string | null;
+  original_subsystem_id?: string | null;
   mpns?: string[];
 }
 

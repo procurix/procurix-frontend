@@ -2,7 +2,7 @@ import { useState, useEffect, useCallback } from 'react';
 import { SystemArchitectureView, type ComponentBlock } from './components/SystemArchitectureView';
 import { toast } from 'sonner';
 import { useSession } from '@/app/context/SessionContext';
-import { analyzeConnections, confirmAllConnections, getArchitectureCompletionReadiness, getArchitectureProposals, getConnectionReviewStatus, getConnections, getClassification, getNets, getPartPinout, getPartPinouts, getPartSpecs, resolveConnectionPins, saveConnections, updateCurrentStageInContext, type ArchitectureCompletionReadiness, type ArchitectureNet, type ConnectionsResponse, type PartPinoutResponse } from '@/app/services/api';
+import { analyzeConnections, confirmAllConnections, getArchitectureCompletionReadiness, getArchitectureProposals, getConnectionReviewStatus, getConnections, getClassification, getNets, getPartPinout, getPartPinouts, getPartSpecs, getSubsystemReadiness, getSubsystems, resolveConnectionPins, saveConnections, updateCurrentStageInContext, type ArchitectureCompletionReadiness, type ArchitectureNet, type ConnectionsResponse, type PartPinoutResponse, type SubsystemSummary } from '@/app/services/api';
 import { useQueryParams } from '@/app/shared/hooks/useQueryParams';
 import { useWorkflowNavigation } from '@/app/shared/hooks/useWorkflowNavigation';
 import type { Component, PartPin } from '@/app/types';
@@ -47,6 +47,43 @@ function attachNetIdsToConnections(response: ConnectionsResponse, nets: Architec
   };
 }
 
+const SUBSYSTEM_COLORS = ['#2563eb', '#059669', '#d97706', '#7c3aed', '#db2777', '#0891b2', '#65a30d', '#dc2626'];
+
+function subsystemAnnotations(subsystems: SubsystemSummary[]): Record<string, {
+  subsystemId: string;
+  subsystemName: string;
+  subsystemKey?: string | null;
+  subsystemColor: string;
+}> {
+  const annotations: Record<string, {
+    subsystemId: string;
+    subsystemName: string;
+    subsystemKey?: string | null;
+    subsystemColor: string;
+  }> = {};
+  subsystems
+    .filter((subsystem) => subsystem.status !== 'rejected')
+    .forEach((subsystem, index) => {
+      const color = SUBSYSTEM_COLORS[index % SUBSYSTEM_COLORS.length];
+      for (const part of subsystem.parts || []) {
+        const ids = [
+          part.design_part_id,
+          part.mpn,
+          part.part_number,
+        ].filter((value): value is string => Boolean(value));
+        for (const id of ids) {
+          annotations[id] = {
+            subsystemId: subsystem.subsystem_id || subsystem.id,
+            subsystemName: subsystem.name,
+            subsystemKey: subsystem.subsystem_key || subsystem.original_subsystem_id,
+            subsystemColor: color,
+          };
+        }
+      }
+    });
+  return annotations;
+}
+
 function toArchitecturePinout(pins: PartPin[] | null | undefined): Record<string, { name: string; type: string; description: string }> {
   const pinout: Record<string, { name: string; type: string; description: string }> = {};
   for (const pin of pins || []) {
@@ -72,6 +109,14 @@ export function ArchitecturePage() {
   const [nets, setNets] = useState<ArchitectureNet[]>([]);
   const [completionReadiness, setCompletionReadiness] = useState<ArchitectureCompletionReadiness | null>(null);
   const [classificationMap, setClassificationMap] = useState<Record<string, string>>({});
+  const [showSubsystemOverlay, setShowSubsystemOverlay] = useState(false);
+  const [subsystemOverlay, setSubsystemOverlay] = useState<Record<string, {
+    subsystemId: string;
+    subsystemName: string;
+    subsystemKey?: string | null;
+    subsystemColor: string;
+    subsystemWarning?: boolean;
+  }>>({});
   const [isLoading, setIsLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
   // Temporal workflow ID returned when USE_TEMPORAL=true — needed to send the confirm signal
@@ -218,11 +263,52 @@ export function ArchitecturePage() {
           console.warn('Could not load unresolved architecture proposals.', proposalError);
         }
 
+        let overlay: Record<string, {
+          subsystemId: string;
+          subsystemName: string;
+          subsystemKey?: string | null;
+          subsystemColor: string;
+          subsystemWarning?: boolean;
+        }> = {};
+        try {
+          const subsystemResponse = await getSubsystems(activeSessionId);
+          overlay = subsystemAnnotations(subsystemResponse.subsystems || []);
+          try {
+            const subsystemReadiness = await getSubsystemReadiness(activeSessionId);
+            for (const blocker of subsystemReadiness.blockers || []) {
+              if (blocker.type !== 'unassigned_important_part') continue;
+              const warningKeys = [
+                blocker.id,
+                blocker.payload?.design_part_id,
+                blocker.payload?.mpn,
+              ].filter((value): value is string => typeof value === 'string' && Boolean(value));
+              for (const key of warningKeys) {
+                overlay[key] = {
+                  subsystemId: '',
+                  subsystemName: 'Unassigned',
+                  subsystemKey: 'Unassigned',
+                  subsystemColor: '#f59e0b',
+                  subsystemWarning: true,
+                };
+              }
+            }
+          } catch {
+            // Subsystem readiness is only available after subsystem architecture exists.
+          }
+        } catch {
+          overlay = {};
+        }
+
         const componentsList = buildArchitectureComponents(response.connections, displayedPartNumbers, specsMap, pinoutMap);
+        const annotatedComponents = componentsList.map((component) => {
+          const annotation = overlay[component.id] || (component.partNumber ? overlay[component.partNumber] : undefined);
+          return annotation ? { ...component, ...annotation } : component;
+        });
         const mappedConnections = mapApiConnections(response.connections);
         const mappedUnresolvedConnections = pendingProposals;
 
-        setComponents(componentsList);
+        setComponents(annotatedComponents);
+        setSubsystemOverlay(overlay);
         setConnections(mappedConnections);
         setUnresolvedConnections(mappedUnresolvedConnections);
         setNets(persistedNets);
@@ -360,18 +446,44 @@ export function ArchitecturePage() {
   }
 
   return (
-    <SystemArchitectureView
-      components={components}
-      onArchitectureComplete={handleArchitectureComplete}
-      initialConnections={connections}
-      initialUnresolvedConnections={unresolvedConnections}
-      initialNets={nets}
-      completionReadiness={completionReadiness}
-      classificationMap={classificationMap}
-      designId={activeSessionId || undefined}
-      layoutScopeId={activeSessionId || undefined}
-      onRefreshNets={refreshNets}
-      onRefreshCompletionReadiness={refreshCompletionReadiness}
-    />
+    <div className="relative h-full">
+      <div className="absolute left-4 top-4 z-20">
+        <button
+          type="button"
+          onClick={() => setShowSubsystemOverlay((value) => !value)}
+          className={`rounded-md border px-3 py-2 text-sm font-medium shadow-sm ${
+            showSubsystemOverlay ? 'border-blue-200 bg-blue-50 text-blue-700' : 'border-slate-200 bg-white text-slate-700'
+          }`}
+          title="Show subsystem badges and unassigned subsystem warnings on component nodes"
+        >
+          {showSubsystemOverlay ? 'Hide Subsystems' : 'Show Subsystems'}
+        </button>
+      </div>
+      <SystemArchitectureView
+        components={showSubsystemOverlay ? components : components.map((component) => ({
+          ...component,
+          subsystemId: undefined,
+          subsystemName: undefined,
+          subsystemKey: undefined,
+          subsystemColor: undefined,
+          subsystemWarning: undefined,
+        }))}
+        onArchitectureComplete={handleArchitectureComplete}
+        initialConnections={connections}
+        initialUnresolvedConnections={unresolvedConnections}
+        initialNets={nets}
+        completionReadiness={completionReadiness}
+        classificationMap={classificationMap}
+        designId={activeSessionId || undefined}
+        layoutScopeId={activeSessionId || undefined}
+        onRefreshNets={refreshNets}
+        onRefreshCompletionReadiness={refreshCompletionReadiness}
+      />
+      {showSubsystemOverlay && Object.keys(subsystemOverlay).length === 0 && (
+        <div className="absolute left-4 top-16 z-20 rounded-md border border-amber-200 bg-amber-50 px-3 py-2 text-xs text-amber-800 shadow-sm">
+          No subsystem data available yet.
+        </div>
+      )}
+    </div>
   );
 }

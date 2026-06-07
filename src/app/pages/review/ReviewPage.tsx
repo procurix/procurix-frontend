@@ -11,7 +11,7 @@ import {
 } from '@/app/services/api';
 import { Badge } from '@/app/shared/components/ui/badge';
 import { Button } from '@/app/shared/components/ui/button';
-import { CheckCircle2, ChevronRight, Layers, Network, Package, ShieldCheck, Sparkles, Trophy } from 'lucide-react';
+import { AlertTriangle, CheckCircle2, ChevronRight, Layers, Network, Package, ShieldCheck, Sparkles, Trophy } from 'lucide-react';
 
 function statusTone(status?: string | null) {
   if (status === 'confirmed') return 'bg-emerald-50 text-emerald-700 border-emerald-200';
@@ -29,7 +29,7 @@ function StatCard({ label, value, accent }: { label: string; value: string | num
 }
 
 function StatusPills({ counts }: { counts: Record<string, number> }) {
-  const entries = Object.entries(counts || {}).filter(([_, v]) => v > 0);
+  const entries = Object.entries(counts || {}).filter(([, v]) => v > 0);
   if (entries.length === 0) return <div className="text-xs text-slate-400">none</div>;
   return (
     <div className="flex flex-wrap gap-1">
@@ -39,6 +39,31 @@ function StatusPills({ counts }: { counts: Record<string, number> }) {
         </Badge>
       ))}
     </div>
+  );
+}
+
+function CompletionBlockers({ blockers }: { blockers: NonNullable<ReviewResponse['completion_blockers']> }) {
+  if (blockers.length === 0) return null;
+  return (
+    <section className="rounded-lg border border-amber-200 bg-amber-50 p-4 text-sm text-amber-900 shadow-sm">
+      <div className="mb-2 flex items-center gap-2 font-semibold">
+        <AlertTriangle className="h-4 w-4" />
+        Resolve {blockers.length} blocker{blockers.length === 1 ? '' : 's'} before marking complete
+      </div>
+      <div className="space-y-1.5">
+        {blockers.slice(0, 6).map((blocker, index) => (
+          <div key={`${blocker.type}-${blocker.id ?? index}`} className="flex items-start gap-2 text-xs">
+            <span className="mt-1 h-1.5 w-1.5 shrink-0 rounded-full bg-amber-600" />
+            <span>{blocker.label}</span>
+          </div>
+        ))}
+        {blockers.length > 6 && (
+          <div className="text-xs font-medium text-amber-800">
+            {blockers.length - 6} more blocker{blockers.length - 6 === 1 ? '' : 's'}
+          </div>
+        )}
+      </div>
+    </section>
   );
 }
 
@@ -209,6 +234,7 @@ export function ReviewPage() {
   }
 
   const sessionId = activeSessionId!;
+  const completionBlockers = review.completion_blockers ?? [];
 
   return (
     <div className="mx-auto max-w-7xl space-y-6 p-6">
@@ -245,6 +271,8 @@ export function ReviewPage() {
               : 'Mark Complete'}
         </Button>
       </header>
+
+      <CompletionBlockers blockers={completionBlockers} />
 
       {/* Stat strip */}
       <section className="grid gap-3 md:grid-cols-5">

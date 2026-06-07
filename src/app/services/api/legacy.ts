@@ -44,6 +44,44 @@ async function apiJSON<T>(url: string, init?: RequestInit): Promise<T> {
     return res.json();
 }
 
+export type EffectKind = 'hard_delete' | 'flag' | 'unlink_and_flag' | 'no_change';
+
+export interface ImpactItem {
+    entity_type: string;
+    entity_id: string;
+    label: string;
+    parent_context: string | null;
+    current_state: string;
+    predicted_effect: EffectKind;
+    effect_detail: string;
+    blocking: boolean;
+}
+
+export interface ImpactReport {
+    action: string;
+    target: { type: string; id: string; label: string };
+    downstream: ImpactItem[];
+    summary: {
+        total_affected: number;
+        by_entity_type: Record<string, number>;
+        by_predicted_effect: Record<string, number>;
+        by_context: Record<string, number>;
+        has_blockers: boolean;
+        is_empty: boolean;
+    };
+}
+
+export async function previewImpact(
+    designId: string,
+    payload: { action: string; target: Record<string, unknown> },
+): Promise<ImpactReport> {
+    return apiJSON(`${BASE_URL}/designs/${designId}/impact/preview`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify(payload),
+    });
+}
+
 // Core types
 
 export interface Design {
@@ -403,18 +441,65 @@ export interface ConnectionStatusResponse {
 
 export interface SubsystemConnection {
     id?: string | null;
+    name?: string | null;
     net_id?: string | null;
     connection_id?: string | null;
+    source_port_id?: string | null;
+    target_port_id?: string | null;
     source_subsystem?: string;
     target_subsystem?: string;
     interface_type?: string | null;
     signal_type?: string | null;
+    direction?: string | null;
+    status?: 'suggested' | 'confirmed' | 'rejected' | string;
+    ai_generated?: boolean;
+    user_corrected?: boolean;
+    confidence?: number | null;
+    rationale?: string | null;
+    constraints_json?: Record<string, unknown> | null;
+    verification_method?: string | null;
+    is_stale?: boolean;
+    staleness_reason?: string | null;
+    evidence_hash?: string | null;
+    evidence_count?: number;
+    linked_requirements_count?: number;
     description?: string | null;
     source_subsystem_id: string;
     target_subsystem_id: string;
     connection_types: string[];
     primary_type: string;
     part_connection_count: number;
+}
+
+export type SubsystemInterfaceContract = SubsystemConnection & {
+    evidence?: SubsystemInterfaceEvidence[];
+    linked_requirements?: SubsystemRequirementItem[];
+};
+
+export interface SubsystemInterfaceEvidence {
+    id: string;
+    design_id: string;
+    interface_id: string;
+    evidence_type: 'net' | 'design_connection' | 'part_model' | 'requirement' | 'manual' | string;
+    evidence_id?: string | null;
+    evidence_fingerprint?: string | null;
+    evidence_payload: Record<string, unknown>;
+    created_at?: string | null;
+}
+
+export interface SubsystemPort {
+    id: string;
+    design_id: string;
+    subsystem_id: string;
+    name: string;
+    port_type: string;
+    direction: string;
+    description?: string | null;
+    status?: string;
+    ai_generated?: boolean;
+    user_corrected?: boolean;
+    confidence?: number | null;
+    rationale?: string | null;
 }
 
 export interface SubsystemRequirementItem {
@@ -433,7 +518,7 @@ export interface SubsystemRequirementItem {
     acceptance_criteria?: string | null;
     verification_method?: string | null;
     verification_status?: string | null;
-    criteria_json?: Record<string, any> | null;
+    criteria_json?: Record<string, unknown> | null;
     criteria?: string;
 
     // Workflow + audit
@@ -442,12 +527,15 @@ export interface SubsystemRequirementItem {
     ai_generated?: boolean;
     confidence?: number | null;
     quality_warnings?: string[];
+    is_stale?: boolean;
+    staleness_reason?: string | null;
     stale?: boolean;
 
     // Chain
     parent_req_id?: string | null;
     parent_req_key?: string | null;
     parent_req_title?: string | null;
+    interface_id?: string | null;
 
     // Mapped parts
     mapped_part_ids?: string[];
@@ -1689,6 +1777,7 @@ export async function confirmAllRequirements(designId: string) {
 export interface SubsystemSummary {
     id: string;
     subsystem_id: string;
+    subsystem_key?: string | null;
     name: string;
     type: string;
     original_subsystem_id: string;
@@ -1697,6 +1786,15 @@ export interface SubsystemSummary {
     confidence?: number | null;
     rationale?: string | null;
     warnings?: string[];
+    diagnostic_warnings?: string[];
+    evidence?: {
+        part_count?: number;
+        internal_connection_count?: number;
+        shared_net_count?: number;
+        requirement_overlap_count?: number;
+        interface_count?: number;
+        functional_roles?: string[];
+    };
     topology?: string | null;
     topology_family?: string | null;
     componentIds?: string[];
@@ -1714,6 +1812,51 @@ export interface SubsystemsResponse {
     subsystems: SubsystemSummary[];
     subsystems_count?: number;
     connections?: SubsystemConnection[];
+}
+
+export interface SubsystemCreatePayload {
+    name: string;
+    description?: string | null;
+    topology?: string | null;
+    topology_family?: string | null;
+}
+
+export interface SubsystemMergePayload {
+    source_subsystem_ids: string[];
+    target_subsystem_id?: string | null;
+    target_name?: string | null;
+}
+
+export interface SubsystemSplitGroupPayload {
+    name: string;
+    part_ids: string[];
+    description?: string | null;
+    topology?: string | null;
+    topology_family?: string | null;
+}
+
+export interface SubsystemSplitPayload {
+    groups: SubsystemSplitGroupPayload[];
+}
+
+export interface SubsystemRequirementCoverageResponse {
+    design_id: string;
+    design_requirements: Array<Requirement & {
+        linked_subsystem_requirements: SubsystemRequirementItem[];
+        linked_count: number;
+    }>;
+    uncovered_requirements: Array<Requirement & {
+        linked_subsystem_requirements: SubsystemRequirementItem[];
+        linked_count: number;
+    }>;
+    stale_subsystem_requirements: SubsystemRequirementItem[];
+    counts: {
+        confirmed_design_requirements: number;
+        covered_design_requirements: number;
+        uncovered_design_requirements: number;
+        stale_subsystem_requirements: number;
+        [key: string]: number;
+    };
 }
 
 export interface SubsystemPartDetail {
@@ -1784,6 +1927,17 @@ export async function getSubsystemDetails(designId: string, subsystemId: string)
     return apiJSON(`${BASE_URL}/designs/${designId}/subsystems/${encodeURIComponent(subsystemId)}`);
 }
 
+export async function createSubsystem(
+    designId: string,
+    payload: SubsystemCreatePayload,
+): Promise<SubsystemDetailsResponse> {
+    return apiJSON(`${BASE_URL}/designs/${designId}/subsystems`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify(payload),
+    });
+}
+
 export async function confirmSubsystem(designId: string, subsystemId: string): Promise<SubsystemDetailsResponse> {
     return apiJSON(`${BASE_URL}/designs/${designId}/subsystems/${encodeURIComponent(subsystemId)}/confirm`, {
         method: 'POST',
@@ -1829,10 +1983,65 @@ export async function moveSubsystemPart(
     });
 }
 
+export async function addSubsystemPart(
+    designId: string,
+    subsystemId: string,
+    designPartId: string,
+): Promise<SubsystemDetailsResponse> {
+    return apiJSON(`${BASE_URL}/designs/${designId}/subsystems/${encodeURIComponent(subsystemId)}/parts`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ design_part_id: designPartId }),
+    });
+}
+
+export async function removeSubsystemPart(
+    designId: string,
+    subsystemId: string,
+    designPartId: string,
+): Promise<SubsystemDetailsResponse> {
+    return apiJSON(`${BASE_URL}/designs/${designId}/subsystems/${encodeURIComponent(subsystemId)}/parts/${encodeURIComponent(designPartId)}`, {
+        method: 'DELETE',
+    });
+}
+
+export async function mergeSubsystems(
+    designId: string,
+    payload: SubsystemMergePayload,
+): Promise<SubsystemsResponse> {
+    return apiJSON(`${BASE_URL}/designs/${designId}/subsystems/merge`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify(payload),
+    });
+}
+
+export async function splitSubsystem(
+    designId: string,
+    subsystemId: string,
+    payload: SubsystemSplitPayload,
+): Promise<SubsystemsResponse> {
+    return apiJSON(`${BASE_URL}/designs/${designId}/subsystems/${encodeURIComponent(subsystemId)}/split`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify(payload),
+    });
+}
+
 export async function updateSubsystemInterface(
     designId: string,
     interfaceId: string,
-    payload: { signal_type?: string | null; description?: string | null },
+    payload: {
+        name?: string | null;
+        interface_type?: string | null;
+        signal_type?: string | null;
+        direction?: string | null;
+        description?: string | null;
+        constraints_json?: Record<string, unknown> | null;
+        verification_method?: string | null;
+        rationale?: string | null;
+        confidence?: number | null;
+    },
 ): Promise<SubsystemConnection> {
     return apiJSON(`${BASE_URL}/designs/${designId}/subsystems/interfaces/${encodeURIComponent(interfaceId)}`, {
         method: 'PATCH',
@@ -1841,12 +2050,67 @@ export async function updateSubsystemInterface(
     });
 }
 
+export async function getSubsystemInterfaces(designId: string): Promise<{ interfaces: SubsystemInterfaceContract[]; count: number }> {
+    return apiJSON(`${BASE_URL}/designs/${designId}/subsystems/interfaces`);
+}
+
+export async function getSubsystemInterface(
+    designId: string,
+    interfaceId: string,
+): Promise<SubsystemInterfaceContract> {
+    return apiJSON(`${BASE_URL}/designs/${designId}/subsystems/interfaces/${encodeURIComponent(interfaceId)}`);
+}
+
+export async function confirmSubsystemInterface(
+    designId: string,
+    interfaceId: string,
+): Promise<SubsystemConnection> {
+    return apiJSON(`${BASE_URL}/designs/${designId}/subsystems/interfaces/${encodeURIComponent(interfaceId)}/confirm`, {
+        method: 'POST',
+    });
+}
+
+export async function rejectSubsystemInterface(
+    designId: string,
+    interfaceId: string,
+): Promise<SubsystemConnection> {
+    return apiJSON(`${BASE_URL}/designs/${designId}/subsystems/interfaces/${encodeURIComponent(interfaceId)}/reject`, {
+        method: 'POST',
+    });
+}
+
+export async function getSubsystemInterfaceEvidence(
+    designId: string,
+    interfaceId: string,
+): Promise<{ interface_id: string; evidence: SubsystemInterfaceEvidence[] }> {
+    return apiJSON(`${BASE_URL}/designs/${designId}/subsystems/interfaces/${encodeURIComponent(interfaceId)}/evidence`);
+}
+
+export async function getSubsystemPorts(designId: string): Promise<{ ports: SubsystemPort[] }> {
+    return apiJSON(`${BASE_URL}/designs/${designId}/subsystems/ports`);
+}
+
 export async function getSubsystemReadiness(designId: string): Promise<SubsystemReadinessResponse> {
     return apiJSON(`${BASE_URL}/designs/${designId}/subsystems/readiness`);
 }
 
 export async function completeSubsystemArchitecture(designId: string): Promise<SubsystemReadinessResponse & { success: boolean; fsm_state: string }> {
     return apiJSON(`${BASE_URL}/designs/${designId}/subsystems/complete`, {
+        method: 'POST',
+    });
+}
+
+export async function getSubsystemRequirementCoverage(designId: string): Promise<SubsystemRequirementCoverageResponse> {
+    return apiJSON(`${BASE_URL}/designs/${designId}/subsystems/requirements/coverage`);
+}
+
+export async function regenerateStaleSubsystemRequirements(designId: string): Promise<{
+    design_id: string;
+    subsystems_processed: number;
+    results: Record<string, { skipped?: boolean; reason?: string | null; requirements?: SubsystemRequirementItem[] }>;
+    requirements_by_subsystem: Record<string, SubsystemRequirementItem[]>;
+}> {
+    return apiJSON(`${BASE_URL}/designs/${designId}/subsystems/requirements/regenerate-stale`, {
         method: 'POST',
     });
 }
@@ -2005,6 +2269,12 @@ export interface ReviewResponse {
     fsm_state: string;
     is_complete: boolean;
     can_complete: boolean;
+    completion_readiness?: {
+        can_complete: boolean;
+        counts: Record<string, number>;
+        blockers: SubsystemReadinessItem[];
+    };
+    completion_blockers?: SubsystemReadinessItem[];
     system_profile: {
         system_type: string | null;
         primary_function: string | null;

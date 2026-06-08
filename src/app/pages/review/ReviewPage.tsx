@@ -8,6 +8,7 @@ import {
   markDesignComplete,
   type ReviewResponse,
   type ReviewSubsystem,
+  type SubsystemInterfaceContract,
 } from '@/app/services/api';
 import { Badge } from '@/app/shared/components/ui/badge';
 import { Button } from '@/app/shared/components/ui/button';
@@ -39,6 +40,89 @@ function StatusPills({ counts }: { counts: Record<string, number> }) {
         </Badge>
       ))}
     </div>
+  );
+}
+
+function interfaceLabel(item?: SubsystemInterfaceContract | null) {
+  if (!item) return 'Interface';
+  return item.name || item.label || item.net_id || item.connection_id || item.id || 'Interface';
+}
+
+function InterfaceContracts({ interfaces }: { interfaces: ReviewResponse['interfaces'] }) {
+  const items = interfaces?.items || [];
+  if (!interfaces || items.length === 0) {
+    return (
+      <section className="rounded-lg border border-slate-200 bg-white p-4 shadow-sm">
+        <div className="flex items-center gap-2">
+          <Network className="h-4 w-4 text-slate-500" />
+          <h2 className="text-sm font-semibold text-slate-950">Interface Contracts</h2>
+        </div>
+        <div className="mt-3 text-sm text-slate-500">No subsystem interfaces defined.</div>
+      </section>
+    );
+  }
+
+  return (
+    <section className="rounded-lg border border-slate-200 bg-white p-4 shadow-sm">
+      <div className="mb-3 flex flex-wrap items-center justify-between gap-2">
+        <div className="flex items-center gap-2">
+          <Network className="h-4 w-4 text-slate-500" />
+          <h2 className="text-sm font-semibold text-slate-950">Interface Contracts ({interfaces.total})</h2>
+        </div>
+        <div className="flex items-center gap-2 text-xs text-slate-500">
+          <StatusPills counts={interfaces.by_status} />
+          {interfaces.stale > 0 && (
+            <Badge variant="outline" className="text-[10px] bg-orange-50 text-orange-700 border-orange-200">
+              {interfaces.stale} stale
+            </Badge>
+          )}
+        </div>
+      </div>
+      <div className="grid gap-2 md:grid-cols-2">
+        {items.map((item) => {
+          const linkedReqs = item.linked_subsystem_requirements || item.linked_requirements || [];
+          const evidence = item.evidence || [];
+          const source = item.source_subsystem_name || item.source_subsystem_id;
+          const target = item.target_subsystem_name || item.target_subsystem_id;
+          return (
+            <div key={item.id || `${source}-${target}-${interfaceLabel(item)}`} className={`rounded border p-3 ${item.is_stale ? 'border-orange-200 bg-orange-50' : 'border-slate-100 bg-slate-50'}`}>
+              <div className="flex flex-wrap items-center gap-1.5">
+                <span className="text-xs font-semibold text-slate-900">{interfaceLabel(item)}</span>
+                <Badge variant="outline" className={`text-[10px] ${statusTone(item.status)}`}>{item.status || 'suggested'}</Badge>
+                <Badge variant="outline" className="text-[10px] bg-white text-slate-600">{item.interface_type || item.signal_type || 'unknown'}</Badge>
+                <span className="text-[10px] text-slate-500">{item.direction || 'unknown'}</span>
+                {item.is_stale && <span className="text-[10px] text-orange-700">stale</span>}
+              </div>
+              <div className="mt-1 text-[11px] text-slate-600">
+                {source} -&gt; {target}
+              </div>
+              {item.description && (
+                <div className="mt-1 text-[11px] text-slate-700 line-clamp-2">{item.description}</div>
+              )}
+              <div className="mt-2 flex flex-wrap gap-1 text-[10px] text-slate-500">
+                <span>{evidence.length || item.evidence_count || 0} evidence</span>
+                <span>{linkedReqs.length || item.linked_subsystem_requirements_count || item.linked_requirements_count || 0} reqs</span>
+                {item.verification_method && <span>verify: {item.verification_method}</span>}
+              </div>
+              {Object.keys(item.constraints_json || {}).length > 0 && (
+                <div className="mt-1 text-[10px] text-slate-600">
+                  constraints: {Object.entries(item.constraints_json || {}).slice(0, 3).map(([k, v]) => `${k}=${String(v)}`).join(', ')}
+                </div>
+              )}
+              {linkedReqs.length > 0 && (
+                <div className="mt-2 space-y-1">
+                  {linkedReqs.slice(0, 3).map((req) => (
+                    <div key={req.req_id} className="rounded border border-slate-100 bg-white px-2 py-1 text-[10px] text-slate-700">
+                      {req.req_key || req.req_id}: {req.title || req.description}
+                    </div>
+                  ))}
+                </div>
+              )}
+            </div>
+          );
+        })}
+      </div>
+    </section>
   );
 }
 
@@ -275,10 +359,11 @@ export function ReviewPage() {
       <CompletionBlockers blockers={completionBlockers} />
 
       {/* Stat strip */}
-      <section className="grid gap-3 md:grid-cols-5">
+      <section className="grid gap-3 md:grid-cols-6">
         <StatCard label="Parts" value={review.parts_summary.total} accent="text-slate-950" />
         <StatCard label="Subsystems" value={review.subsystem_count} accent="text-slate-950" />
         <StatCard label="Connections" value={review.connections.total} accent="text-slate-950" />
+        <StatCard label="Interfaces" value={review.interfaces?.total ?? review.interfaces_count} accent="text-slate-950" />
         <StatCard
           label="Design Requirements"
           value={review.design_requirements.total}
@@ -292,10 +377,14 @@ export function ReviewPage() {
       </section>
 
       {/* Status pill strip */}
-      <section className="grid gap-4 rounded-lg border border-slate-200 bg-white p-4 shadow-sm md:grid-cols-4">
+      <section className="grid gap-4 rounded-lg border border-slate-200 bg-white p-4 shadow-sm md:grid-cols-5">
         <div>
           <div className="text-xs font-semibold uppercase tracking-wide text-slate-500">Connections</div>
           <div className="mt-1.5"><StatusPills counts={review.connections.by_status} /></div>
+        </div>
+        <div>
+          <div className="text-xs font-semibold uppercase tracking-wide text-slate-500">Interfaces</div>
+          <div className="mt-1.5"><StatusPills counts={review.interfaces?.by_status || {}} /></div>
         </div>
         <div>
           <div className="text-xs font-semibold uppercase tracking-wide text-slate-500">Design Reqs</div>
@@ -312,6 +401,8 @@ export function ReviewPage() {
           </div>
         </div>
       </section>
+
+      <InterfaceContracts interfaces={review.interfaces} />
 
       {/* Parts summary */}
       <section className="rounded-lg border border-slate-200 bg-white p-4 shadow-sm">
@@ -390,6 +481,26 @@ export function ReviewPage() {
                 </div>
                 <div className="mt-1 text-xs font-medium text-slate-900">{r.title || '(untitled)'}</div>
                 <div className="mt-0.5 text-xs text-slate-600 line-clamp-2">{r.description}</div>
+                {(r.child_subsystem_requirements || []).length > 0 ? (
+                  <div className="mt-2 grid gap-1 md:grid-cols-2">
+                    {(r.child_subsystem_requirements || []).map((child) => (
+                      <div key={child.req_id} className={`rounded border px-2 py-1 text-[10px] ${child.stale ? 'border-orange-200 bg-orange-50 text-orange-800' : 'border-slate-100 bg-white text-slate-700'}`}>
+                        <div className="font-semibold">{child.req_key || child.req_id}</div>
+                        <div className="line-clamp-1">{child.title || 'Subsystem requirement'}</div>
+                        <div className="text-slate-500">
+                          {child.subsystem_name || child.subsystem_id}
+                          {child.interface_id ? ` / interface ${child.interface_label || child.interface_id}` : ''}
+                        </div>
+                      </div>
+                    ))}
+                  </div>
+                ) : (
+                  r.status === 'confirmed' && (
+                    <div className="mt-2 rounded border border-red-100 bg-red-50 px-2 py-1 text-[10px] text-red-700">
+                      No subsystem requirement coverage.
+                    </div>
+                  )
+                )}
               </div>
             ))}
           </div>

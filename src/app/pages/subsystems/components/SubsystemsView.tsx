@@ -7,13 +7,24 @@ import { Input } from '@/app/shared/components/ui/input';
 import { Textarea } from '@/app/shared/components/ui/textarea';
 import { ConfirmActionDialog } from '@/app/shared/components/ConfirmActionDialog';
 import type { Component, Subsystem, SubsystemInterfaceSummary, SubsystemMappedRequirement, SubsystemPart } from '@/app/types';
-import type { SubsystemConnection, SubsystemInterfaceEvidence, SubsystemReadinessResponse, SubsystemRequirementCoverageResponse, SubsystemRequirementItem } from '@/app/services/api';
+import type {
+  Connection,
+  SubsystemConnection,
+  SubsystemInterfaceEvidence,
+  SubsystemReadinessResponse,
+  SubsystemRequirementCoverageResponse,
+  SubsystemRequirementItem,
+  SubsystemReviewProposal,
+  SubsystemReviewProposalStatus,
+  SubsystemReviewProposalType,
+} from '@/app/services/api';
 import { SubsystemDiagramView } from './SubsystemDiagramView';
 
 interface SubsystemsViewProps {
   subsystems: Subsystem[];
   components: Component[];
   subsystemConnections: SubsystemConnection[];
+  architectureConnections: Connection[];
   readiness: SubsystemReadinessResponse | null;
   coverage: SubsystemRequirementCoverageResponse | null;
   isGenerating: boolean;
@@ -76,6 +87,16 @@ interface SubsystemsViewProps {
   onUpdateSubReq?: (reqId: string, fields: Partial<SubsystemRequirementItem>) => Promise<void> | void;
   onCreateSubReq?: (subsystemId: string, fields: Partial<SubsystemRequirementItem>) => Promise<void> | void;
   isGeneratingSubReqs?: boolean;
+  reviewProposals: SubsystemReviewProposal[];
+  reviewProposalFilter: SubsystemReviewProposalStatus;
+  reviewProposalsLoading: boolean;
+  reviewProposalsError: string | null;
+  suggestionsAvailable: boolean | null;
+  isSuggestingReview: boolean;
+  onReviewProposalFilterChange: (status: SubsystemReviewProposalStatus) => Promise<void> | void;
+  onSuggestReviewProposals: () => Promise<void> | void;
+  onApplyReviewProposal: (proposalId: string) => Promise<void> | void;
+  onDismissReviewProposal: (proposalId: string, reason?: string) => Promise<void> | void;
 }
 
 type SubReqDraft = {
@@ -193,10 +214,142 @@ function parseConstraints(text: string): Record<string, unknown> | null {
   }
 }
 
+const REVIEW_PROPOSAL_FILTERS: SubsystemReviewProposalStatus[] = ['pending', 'applied', 'dismissed', 'invalid'];
+const CONFIRM_REVIEW_PROPOSAL_TYPES = new Set<SubsystemReviewProposalType>([
+  'move_part',
+  'merge_subsystems',
+  'split_subsystem',
+  'create_interface_requirement',
+]);
+
+function reviewProposalTypeLabel(type: string): string {
+  const labels: Record<string, string> = {
+    rename_subsystem: 'Rename',
+    move_part: 'Move part',
+    merge_subsystems: 'Merge',
+    split_subsystem: 'Split',
+    create_interface_requirement: 'Interface requirement',
+    flag_weak_member: 'Weak member',
+    flag_unmapped_requirement: 'Unmapped requirement',
+    flag_duplicate_name: 'Duplicate name',
+  };
+  return labels[type] || type.replace(/_/g, ' ');
+}
+
+function reviewProposalStatusTone(status: SubsystemReviewProposalStatus): string {
+  if (status === 'applied') return 'border-emerald-200 bg-emerald-50 text-emerald-700';
+  if (status === 'dismissed') return 'border-gray-200 bg-gray-100 text-gray-500';
+  if (status === 'invalid') return 'border-red-200 bg-red-50 text-red-700';
+  return 'border-blue-200 bg-blue-50 text-blue-700';
+}
+
+function readPayloadString(payload: Record<string, unknown>, key: string): string {
+  const value = payload[key];
+  return typeof value === 'string' ? value : '';
+}
+
+function readPayloadStringArray(payload: Record<string, unknown>, key: string): string[] {
+  const value = payload[key];
+  return Array.isArray(value) ? value.filter((item): item is string => typeof item === 'string') : [];
+}
+
+function subsystemLabel(subsystems: Subsystem[], subsystemId?: string | null): string {
+  if (!subsystemId) return 'Unknown subsystem';
+  const subsystem = subsystems.find((item) => item.id === subsystemId || item.subsystem_id === subsystemId);
+  if (!subsystem) return subsystemId;
+  return subsystem.subsystem_key ? `${subsystem.subsystem_key} ${subsystem.name}` : subsystem.name;
+}
+
+function partIdForSubsystemPart(part: SubsystemPart): string {
+  return String(part.design_part_id || part.part_number || part.mpn || part.component_id || '');
+}
+
+function proposalPartLabel(
+  partId: string,
+  subsystems: Subsystem[],
+  components: Component[],
+): string {
+  for (const subsystem of subsystems) {
+    const part = (subsystem.parts || []).find((candidate) => partIdForSubsystemPart(candidate) === partId);
+    if (part) return partLabel(part);
+  }
+  const component = components.find((candidate) => candidate.id === partId);
+  return component?.partNumber || component?.reference || partId;
+}
+
+function proposalRequirementLabel(
+  requirementId: string,
+  coverage: SubsystemRequirementCoverageResponse | null,
+): string {
+  const allRequirements = [
+    ...(coverage?.design_requirements || []),
+    ...(coverage?.uncovered_requirements || []),
+  ];
+  const requirement = allRequirements.find((item) => item.id === requirementId || item.req_id === requirementId);
+  if (!requirement) return requirementId;
+  return requirement.req_key || requirement.req_id || requirement.title || requirementId;
+}
+
+function proposalInterfaceLabel(interfaceId: string, subsystems: Subsystem[]): string {
+  for (const subsystem of subsystems) {
+    const found = (subsystem.interfaces || []).find((item) => item.id === interfaceId);
+    if (found) return found.name || found.interface_type || found.signal_type || interfaceId;
+  }
+  return interfaceId;
+}
+
+function formatProposalTarget(
+  proposal: SubsystemReviewProposal,
+  subsystems: Subsystem[],
+  coverage: SubsystemRequirementCoverageResponse | null,
+  components: Component[],
+): string {
+  const payload = proposal.payload || {};
+  if (proposal.proposal_type === 'rename_subsystem') {
+    const subsystem = subsystemLabel(subsystems, readPayloadString(payload, 'subsystem_id'));
+    const newName = readPayloadString(payload, 'new_name');
+    return newName ? `${subsystem} -> ${newName}` : subsystem;
+  }
+  if (proposal.proposal_type === 'move_part') {
+    const part = proposalPartLabel(readPayloadString(payload, 'design_part_id'), subsystems, components);
+    return `${part} -> ${subsystemLabel(subsystems, readPayloadString(payload, 'target_subsystem_id'))}`;
+  }
+  if (proposal.proposal_type === 'merge_subsystems') {
+    const sources = readPayloadStringArray(payload, 'source_subsystem_ids')
+      .map((id) => subsystemLabel(subsystems, id))
+      .join(', ');
+    const target = readPayloadString(payload, 'target_subsystem_id')
+      ? subsystemLabel(subsystems, readPayloadString(payload, 'target_subsystem_id'))
+      : readPayloadString(payload, 'target_name') || 'new subsystem';
+    return `${sources || 'Selected subsystems'} -> ${target}`;
+  }
+  if (proposal.proposal_type === 'split_subsystem') {
+    const groups = Array.isArray(payload.groups) ? payload.groups.length : 0;
+    return `${subsystemLabel(subsystems, readPayloadString(payload, 'source_subsystem_id'))} into ${groups || 'multiple'} groups`;
+  }
+  if (proposal.proposal_type === 'create_interface_requirement') {
+    return `${subsystemLabel(subsystems, readPayloadString(payload, 'subsystem_id'))} / ${proposalInterfaceLabel(readPayloadString(payload, 'interface_id'), subsystems)}`;
+  }
+  if (proposal.proposal_type === 'flag_weak_member') {
+    const part = proposalPartLabel(readPayloadString(payload, 'design_part_id'), subsystems, components);
+    return `${part} in ${subsystemLabel(subsystems, readPayloadString(payload, 'subsystem_id'))}`;
+  }
+  if (proposal.proposal_type === 'flag_unmapped_requirement') {
+    return proposalRequirementLabel(readPayloadString(payload, 'requirement_id'), coverage);
+  }
+  if (proposal.proposal_type === 'flag_duplicate_name') {
+    return readPayloadStringArray(payload, 'subsystem_ids')
+      .map((id) => subsystemLabel(subsystems, id))
+      .join(', ') || 'Duplicate subsystem names';
+  }
+  return proposal.id;
+}
+
 export function SubsystemsView({
   subsystems,
   components,
   subsystemConnections,
+  architectureConnections,
   readiness,
   coverage,
   isGenerating,
@@ -226,6 +379,16 @@ export function SubsystemsView({
   onUpdateSubReq,
   onCreateSubReq,
   isGeneratingSubReqs,
+  reviewProposals,
+  reviewProposalFilter,
+  reviewProposalsLoading,
+  reviewProposalsError,
+  suggestionsAvailable,
+  isSuggestingReview,
+  onReviewProposalFilterChange,
+  onSuggestReviewProposals,
+  onApplyReviewProposal,
+  onDismissReviewProposal,
 }: SubsystemsViewProps) {
   const [editingSubReqId, setEditingSubReqId] = useState<string | null>(null);
   const [creatingSubReq, setCreatingSubReq] = useState(false);
@@ -515,6 +678,31 @@ export function SubsystemsView({
     setTab('review');
   };
 
+  const applyReviewProposal = (proposal: SubsystemReviewProposal) => {
+    const target = formatProposalTarget(proposal, subsystems, coverage, components);
+    const runApply = () => {
+      void runAction(`apply-review-proposal-${proposal.id}`, () => onApplyReviewProposal(proposal.id));
+    };
+    if (CONFIRM_REVIEW_PROPOSAL_TYPES.has(proposal.proposal_type)) {
+      setConfirmation({
+        title: 'Apply review suggestion?',
+        description: `This cannot be undone automatically. ${proposal.title || reviewProposalTypeLabel(proposal.proposal_type)} will apply to ${target}. Linked subsystem requirements may need review.`,
+        confirmLabel: 'Apply suggestion',
+        onConfirm: () => {
+          setConfirmation(null);
+          runApply();
+        },
+      });
+      return;
+    }
+    runApply();
+  };
+
+  const dismissReviewProposal = (proposal: SubsystemReviewProposal) => {
+    void runAction(`dismiss-review-proposal-${proposal.id}`, () =>
+      onDismissReviewProposal(proposal.id, 'dismissed_by_user'));
+  };
+
   const focusBlocker = (blocker: { id: string | null; payload: Record<string, unknown> }) => {
     if (blocker.payload?.design_part_id) {
       setAddPartTarget(String(blocker.payload.design_part_id));
@@ -687,6 +875,24 @@ export function SubsystemsView({
             </div>
           )}
         </section>
+
+        {suggestionsAvailable === true && (
+          <ReviewProposalsPanel
+            proposals={reviewProposals}
+            filter={reviewProposalFilter}
+            loading={reviewProposalsLoading}
+            error={reviewProposalsError}
+            isSuggesting={isSuggestingReview}
+            busyAction={busyAction}
+            subsystems={subsystems}
+            coverage={coverage}
+            components={components}
+            onFilterChange={onReviewProposalFilterChange}
+            onSuggest={onSuggestReviewProposals}
+            onApply={applyReviewProposal}
+            onDismiss={dismissReviewProposal}
+          />
+        )}
 
         {activeSubsystems.length === 0 ? (
           <section className="rounded-lg border border-dashed border-slate-300 bg-white p-10 text-center">
@@ -1421,7 +1627,7 @@ export function SubsystemsView({
                         selectedSubsystem={selectedSubsystem}
                         allSubsystems={activeSubsystems}
                         allComponents={components}
-                        connections={[]}
+                        connections={architectureConnections}
                         subsystemConnections={subsystemConnections}
                       />
                     </div>
@@ -1448,6 +1654,177 @@ export function SubsystemsView({
 }
 
 // ── Subsystem Requirements panel ─────────────────────────────────────────────
+
+interface ReviewProposalsPanelProps {
+  proposals: SubsystemReviewProposal[];
+  filter: SubsystemReviewProposalStatus;
+  loading: boolean;
+  error: string | null;
+  isSuggesting: boolean;
+  busyAction: string | null;
+  subsystems: Subsystem[];
+  coverage: SubsystemRequirementCoverageResponse | null;
+  components: Component[];
+  onFilterChange: (status: SubsystemReviewProposalStatus) => Promise<void> | void;
+  onSuggest: () => Promise<void> | void;
+  onApply: (proposal: SubsystemReviewProposal) => void;
+  onDismiss: (proposal: SubsystemReviewProposal) => void;
+}
+
+function proposalConfidenceLabel(confidence?: number | null): string | null {
+  if (typeof confidence !== 'number') return null;
+  const normalized = confidence <= 1 ? confidence * 100 : confidence;
+  return `${Math.round(normalized)}% confidence`;
+}
+
+function ReviewProposalsPanel({
+  proposals,
+  filter,
+  loading,
+  error,
+  isSuggesting,
+  busyAction,
+  subsystems,
+  coverage,
+  components,
+  onFilterChange,
+  onSuggest,
+  onApply,
+  onDismiss,
+}: ReviewProposalsPanelProps) {
+  const isPending = filter === 'pending';
+
+  return (
+    <section className="rounded-lg border border-indigo-200 bg-white p-4 shadow-sm">
+      <div className="flex flex-wrap items-start justify-between gap-3">
+        <div>
+          <div className="flex items-center gap-2">
+            <Sparkles className="h-4 w-4 text-indigo-600" />
+            <h2 className="text-sm font-semibold text-slate-950">Review Suggestions</h2>
+            {isPending && (
+              <Badge variant="outline" className="border-indigo-200 bg-indigo-50 text-indigo-700">
+                {proposals.length} pending
+              </Badge>
+            )}
+          </div>
+          <p className="mt-1 text-xs text-slate-600">
+            Ask the review agent to propose safe subsystem edits. Applying a proposal always runs server-side validation first.
+          </p>
+        </div>
+        <Button
+          variant="outline"
+          onClick={() => void onSuggest()}
+          disabled={isSuggesting || Boolean(busyAction)}
+        >
+          <Sparkles className="mr-2 h-4 w-4" />
+          {isSuggesting ? 'Suggesting...' : 'Suggest Improvements'}
+        </Button>
+      </div>
+
+      <div className="mt-3 flex flex-wrap gap-2">
+        {REVIEW_PROPOSAL_FILTERS.map((status) => (
+          <Button
+            key={status}
+            variant={filter === status ? 'default' : 'outline'}
+            size="sm"
+            onClick={() => void onFilterChange(status)}
+            disabled={loading || Boolean(busyAction)}
+            className={filter === status ? '' : 'bg-white'}
+          >
+            {status[0].toUpperCase() + status.slice(1)}
+            {filter === status && proposals.length > 0 && (
+              <span className="ml-2 rounded-full bg-white/20 px-1.5 text-[10px]">{proposals.length}</span>
+            )}
+          </Button>
+        ))}
+      </div>
+
+      {error && (
+        <div className="mt-3 rounded-md border border-red-200 bg-red-50 px-3 py-2 text-sm text-red-700">
+          {error}
+        </div>
+      )}
+
+      <div className="mt-3 space-y-2">
+        {loading ? (
+          <div className="rounded-md border border-slate-200 bg-slate-50 px-3 py-3 text-sm text-slate-600">
+            Loading suggestions...
+          </div>
+        ) : proposals.length === 0 ? (
+          <div className="rounded-md border border-dashed border-slate-200 bg-slate-50 px-3 py-3 text-sm text-slate-500">
+            No {filter} review suggestions.
+          </div>
+        ) : (
+          proposals.map((proposal) => {
+            const target = formatProposalTarget(proposal, subsystems, coverage, components);
+            const confidence = proposalConfidenceLabel(proposal.confidence);
+            const isActionable = proposal.status === 'pending';
+            return (
+              <article
+                key={proposal.id}
+                className="rounded-md border border-slate-200 bg-slate-50 p-3"
+              >
+                <div className="flex flex-wrap items-start justify-between gap-2">
+                  <div className="min-w-0">
+                    <div className="flex flex-wrap items-center gap-2">
+                      <Badge variant="outline" className="border-slate-200 bg-white text-slate-700">
+                        {reviewProposalTypeLabel(proposal.proposal_type)}
+                      </Badge>
+                      <Badge variant="outline" className={reviewProposalStatusTone(proposal.status)}>
+                        {proposal.status}
+                      </Badge>
+                      {confidence && (
+                        <span className="text-xs text-slate-500">{confidence}</span>
+                      )}
+                    </div>
+                    <h3 className="mt-2 text-sm font-semibold text-slate-950">{proposal.title}</h3>
+                    <div className="mt-1 text-xs font-medium text-slate-600">{target}</div>
+                    {(proposal.description || proposal.rationale) && (
+                      <p className="mt-2 text-sm text-slate-600">
+                        {proposal.description || proposal.rationale}
+                      </p>
+                    )}
+                    {proposal.dismissed_reason && (
+                      <div className="mt-2 text-xs text-slate-500">
+                        Dismissed: {proposal.dismissed_reason}
+                      </div>
+                    )}
+                    {proposal.validation_errors?.length > 0 && (
+                      <div className="mt-2 rounded border border-red-100 bg-white px-2 py-1 text-xs text-red-700">
+                        {proposal.validation_errors.map((message, index) => (
+                          <div key={`${proposal.id}-error-${index}`}>{message}</div>
+                        ))}
+                      </div>
+                    )}
+                  </div>
+                  {isActionable && (
+                    <div className="flex shrink-0 gap-2">
+                      <Button
+                        size="sm"
+                        onClick={() => onApply(proposal)}
+                        disabled={Boolean(busyAction)}
+                      >
+                        Apply
+                      </Button>
+                      <Button
+                        size="sm"
+                        variant="outline"
+                        onClick={() => onDismiss(proposal)}
+                        disabled={Boolean(busyAction)}
+                      >
+                        Dismiss
+                      </Button>
+                    </div>
+                  )}
+                </div>
+              </article>
+            );
+          })
+        )}
+      </div>
+    </section>
+  );
+}
 
 interface SubsystemRequirementsPanelProps {
   subsystem: Subsystem;

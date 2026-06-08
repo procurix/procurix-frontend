@@ -3,11 +3,14 @@ import {
   ReactFlow,
   Background,
   Controls,
+  Handle,
   MiniMap,
+  Position,
   useNodesState,
   useEdgesState,
   type Edge,
   type Node,
+  type NodeProps,
   MarkerType,
 } from '@xyflow/react';
 import '@xyflow/react/dist/style.css';
@@ -72,13 +75,64 @@ const getEdgeStyle = (type: string): React.CSSProperties => {
 
 // ─── Node / Edge Types ────────────────────────────────────────────────────────
 
-const nodeTypes = {
-  component: ComponentNode as any,
-};
-
 const edgeTypes = {
   smoothstep: (props: any) => <CustomEdge {...props} />,
   default: (props: any) => <CustomEdge {...props} />,
+};
+
+function subsystemSourceHandle(nodeId: string): string {
+  return `${nodeId}-subsystem-source`;
+}
+
+function subsystemTargetHandle(nodeId: string): string {
+  return `${nodeId}-subsystem-target`;
+}
+
+const SubsystemComponentNode = (props: NodeProps) => {
+  const data = props.data as unknown as Component;
+  return (
+    <div className="relative overflow-visible">
+      <Handle
+        id={subsystemTargetHandle(data.id)}
+        type="target"
+        position={Position.Left}
+        style={{ opacity: 0, top: '50%', width: 12, height: 12 }}
+      />
+      <Handle
+        id={subsystemSourceHandle(data.id)}
+        type="source"
+        position={Position.Right}
+        style={{ opacity: 0, top: '50%', width: 12, height: 12 }}
+      />
+      <ComponentNode {...props} />
+    </div>
+  );
+};
+
+const SubsystemGroupNode = (props: NodeProps) => {
+  const label = typeof props.data?.label === 'string' ? props.data.label : '';
+  return (
+    <div className="relative h-full w-full overflow-visible">
+      <Handle
+        id={subsystemTargetHandle(props.id)}
+        type="target"
+        position={Position.Left}
+        style={{ opacity: 0, top: '50%', width: 12, height: 12 }}
+      />
+      <Handle
+        id={subsystemSourceHandle(props.id)}
+        type="source"
+        position={Position.Right}
+        style={{ opacity: 0, top: '50%', width: 12, height: 12 }}
+      />
+      <div className="pointer-events-none">{label}</div>
+    </div>
+  );
+};
+
+const nodeTypes = {
+  component: SubsystemComponentNode as any,
+  subsystemGroup: SubsystemGroupNode as any,
 };
 
 // ─── Helpers ──────────────────────────────────────────────────────────────────
@@ -97,6 +151,54 @@ function compById(allComponents: Component[], mpn: string): Component {
       complianceStatus: 'unknown' as const,
     }
   );
+}
+
+function normalizeEndpointKey(value: string | null | undefined): string {
+  return String(value || '').trim().toLowerCase();
+}
+
+function buildComponentEndpointLookup(allComponents: Component[]): Map<string, string[]> {
+  const lookup = new Map<string, string[]>();
+
+  const addAlias = (alias: string | null | undefined, componentId: string) => {
+    const key = normalizeEndpointKey(alias);
+    if (!key) return;
+    const ids = lookup.get(key) || [];
+    if (!ids.includes(componentId)) {
+      lookup.set(key, [...ids, componentId]);
+    }
+  };
+
+  allComponents.forEach((component) => {
+    addAlias(component.id, component.id);
+    addAlias(component.partNumber, component.id);
+    addAlias(component.reference, component.id);
+  });
+
+  return lookup;
+}
+
+function resolveEndpointComponentIds(
+  endpoint: string | null | undefined,
+  componentLookup: Map<string, string[]>,
+): string[] {
+  return componentLookup.get(normalizeEndpointKey(endpoint)) || [];
+}
+
+function isVisibleArchitectureConnection(connection: APIConnection): boolean {
+  const status = String(connection.status || '').trim().toLowerCase();
+  return Boolean(
+    connection.source_part
+      && connection.target_part
+      && connection.source_pin?.trim()
+      && connection.target_pin?.trim()
+      && status !== 'rejected'
+      && status !== 'deleted',
+  );
+}
+
+function connectionType(connection: APIConnection): string {
+  return connection.connection_type || 'signal';
 }
 
 function makeComponentNode(
@@ -118,12 +220,15 @@ function makeEdge(
   source: string,
   target: string,
   connectionType: string,
+  handles?: { sourceHandle?: string; targetHandle?: string },
 ): Edge {
   const color = getEdgeColor(connectionType);
   return {
     id,
     source,
     target,
+    sourceHandle: handles?.sourceHandle,
+    targetHandle: handles?.targetHandle,
     type: 'smoothstep',
     label: connectionType,
     labelStyle: { fontSize: 9, fill: color, fontWeight: 600 },
@@ -132,6 +237,18 @@ function makeEdge(
     markerEnd: { type: MarkerType.ArrowClosed, color },
     animated: connectionType === 'switching',
   } as Edge;
+}
+
+function makeComponentEdge(
+  id: string,
+  source: string,
+  target: string,
+  connectionType: string,
+): Edge {
+  return makeEdge(id, source, target, connectionType, {
+    sourceHandle: subsystemSourceHandle(source),
+    targetHandle: subsystemTargetHandle(target),
+  });
 }
 
 // ─── Build: Isolated Layout ───────────────────────────────────────────────────
@@ -145,10 +262,10 @@ function buildIsolatedLayout(
   allSubsystems: Subsystem[],
   allComponents: Component[],
   connections: APIConnection[],
-  subsystemConnections: SubsystemConnection[],
 ): { nodes: Node[]; edges: Edge[] } {
   const compIds = selectedSubsystem.componentIds;
   const compSet = new Set(compIds);
+  const componentLookup = buildComponentEndpointLookup(allComponents);
   const cols = Math.max(1, Math.ceil(Math.sqrt(compIds.length)));
 
   // Component nodes for this subsystem
@@ -163,21 +280,33 @@ function buildIsolatedLayout(
 
   // Internal edges — connections where both ends belong to this subsystem
   const internalEdges: Edge[] = connections
-    .filter((c) => c.target_part && compSet.has(c.source_part) && compSet.has(c.target_part!))
-    .map((c, i) =>
-      makeEdge(
-        `int_${i}_${c.source_part}_${c.target_part}`,
-        c.source_part,
-        c.target_part!,
-        c.connection_type,
-      ),
-    );
+    .filter(isVisibleArchitectureConnection)
+    .flatMap((c, i) => {
+      const sourceIds = resolveEndpointComponentIds(c.source_part, componentLookup)
+        .filter((id) => compSet.has(id));
+      const targetIds = resolveEndpointComponentIds(c.target_part, componentLookup)
+        .filter((id) => compSet.has(id));
+
+      return sourceIds.flatMap((sourceId) =>
+        targetIds.map((targetId) =>
+          makeComponentEdge(
+            `int_${c.id || i}_${sourceId}_${targetId}`,
+            sourceId,
+            targetId,
+            connectionType(c),
+          ),
+        ),
+      );
+    });
 
   // Build external stubs — one stub node per connected subsystem.
   // subsystemConnections is always computed client-side from part-level connections,
   // so there is no API race and no need for a fallback code path.
-  const anchorMpn = compIds[0] || '';
   const subById = new Map(allSubsystems.map((s) => [s.id, s]));
+  const partToSubsystem = new Map<string, string>();
+  allSubsystems.forEach((sub) => {
+    sub.componentIds.forEach((partId) => partToSubsystem.set(partId, sub.id));
+  });
 
   const maxCompX = compIds.length > 0
     ? 60 + (Math.min(cols - 1, compIds.length - 1)) * COLS_GAP + NODE_W
@@ -185,73 +314,76 @@ function buildIsolatedLayout(
 
   const stubNodes: Node[] = [];
   const stubEdges: Edge[] = [];
+  const stubIds = new Set<string>();
   let outIdx = 0;
   let inIdx = 0;
 
-  // Outgoing stubs: selectedSubsystem is source
-  subsystemConnections
-    .filter((sc) => sc.source_subsystem_id === selectedSubsystem.id)
-    .forEach((sc) => {
-      const targetSub = subById.get(sc.target_subsystem_id);
-      const label = `↗ ${targetSub?.name ?? sc.target_subsystem_id}`;
-      const stubId = `stub_out_${sc.target_subsystem_id}`;
-      const color = getEdgeColor(sc.primary_type);
-      const idx = outIdx++;
+  const ensureStubNode = (
+    direction: 'out' | 'in',
+    externalKey: string,
+    label: string,
+    primaryType: string,
+  ): string => {
+    const stubId = `stub_${direction}_${externalKey}`;
+    if (stubIds.has(stubId)) return stubId;
+    stubIds.add(stubId);
 
-      stubNodes.push({
-        id: stubId,
-        type: 'default',
-        position: { x: maxCompX + 80, y: idx * 140 },
-        data: { label },
-        style: {
-          background: '#f9fafb',
-          border: `2px dashed ${color}`,
-          borderRadius: 8,
-          fontSize: 11,
-          color: '#6b7280',
-          width: 200,
-          padding: '8px 12px',
-        },
-      });
-
-      if (anchorMpn) {
-        stubEdges.push(
-          makeEdge(`stub_edge_out_${sc.target_subsystem_id}`, anchorMpn, stubId, sc.primary_type),
-        );
-      }
+    const color = getEdgeColor(primaryType);
+    const idx = direction === 'out' ? outIdx++ : inIdx++;
+    stubNodes.push({
+      id: stubId,
+      type: 'default',
+      position: { x: direction === 'out' ? maxCompX + 80 : -340, y: idx * 140 },
+      data: { label },
+      style: {
+        background: '#f9fafb',
+        border: `2px dashed ${color}`,
+        borderRadius: 8,
+        fontSize: 11,
+        color: '#6b7280',
+        width: 200,
+        padding: '8px 12px',
+      },
     });
 
-  // Incoming stubs: selectedSubsystem is target
-  subsystemConnections
-    .filter((sc) => sc.target_subsystem_id === selectedSubsystem.id)
-    .forEach((sc) => {
-      const sourceSub = subById.get(sc.source_subsystem_id);
-      const label = `↙ ${sourceSub?.name ?? sc.source_subsystem_id}`;
-      const stubId = `stub_in_${sc.source_subsystem_id}`;
-      const color = getEdgeColor(sc.primary_type);
-      const idx = inIdx++;
+    return stubId;
+  };
 
-      stubNodes.push({
-        id: stubId,
-        type: 'default',
-        position: { x: -340, y: idx * 140 },
-        data: { label },
-        style: {
-          background: '#f9fafb',
-          border: `2px dashed ${color}`,
-          borderRadius: 8,
-          fontSize: 11,
-          color: '#6b7280',
-          width: 200,
-          padding: '8px 12px',
-        },
+  connections
+    .filter(isVisibleArchitectureConnection)
+    .forEach((connection, connectionIndex) => {
+      const sourceIds = resolveEndpointComponentIds(connection.source_part, componentLookup);
+      const targetIds = resolveEndpointComponentIds(connection.target_part, componentLookup);
+      const type = connectionType(connection);
+
+      sourceIds.forEach((sourceId) => {
+        targetIds.forEach((targetId) => {
+          const sourceInSelected = compSet.has(sourceId);
+          const targetInSelected = compSet.has(targetId);
+          if (sourceInSelected === targetInSelected) return;
+
+          if (sourceInSelected) {
+            const targetSubId = partToSubsystem.get(targetId) || `external_${targetId}`;
+            const targetSub = subById.get(targetSubId);
+            const stubId = ensureStubNode('out', targetSubId, `to ${targetSub?.name || targetId}`, type);
+            stubEdges.push(
+              makeEdge(`stub_edge_out_${connection.id || connectionIndex}_${sourceId}_${targetId}`, sourceId, stubId, type, {
+                sourceHandle: subsystemSourceHandle(sourceId),
+              }),
+            );
+            return;
+          }
+
+          const sourceSubId = partToSubsystem.get(sourceId) || `external_${sourceId}`;
+          const sourceSub = subById.get(sourceSubId);
+          const stubId = ensureStubNode('in', sourceSubId, `from ${sourceSub?.name || sourceId}`, type);
+          stubEdges.push(
+            makeEdge(`stub_edge_in_${connection.id || connectionIndex}_${sourceId}_${targetId}`, stubId, targetId, type, {
+              targetHandle: subsystemTargetHandle(targetId),
+            }),
+          );
+        });
       });
-
-      if (anchorMpn) {
-        stubEdges.push(
-          makeEdge(`stub_edge_in_${sc.source_subsystem_id}`, stubId, anchorMpn, sc.primary_type),
-        );
-      }
     });
 
   return {
@@ -311,7 +443,7 @@ function buildContextLayout(
     const gy = rowOffsets[row];
     groupNodes.push({
       id: `group_${sub.id}`,
-      type: 'default',
+      type: 'subsystemGroup',
       position: { x: gx, y: gy },
       style: {
         width: groupWidth,
@@ -359,34 +491,45 @@ function buildContextLayout(
   allSubsystems.forEach((sub) => {
     sub.componentIds.forEach((mpn) => partToSubsystem.set(mpn, sub.id));
   });
+  const componentLookup = buildComponentEndpointLookup(allComponents);
 
   const partEdges: Edge[] = connections
-    .filter((c) => c.target_part)
+    .filter(isVisibleArchitectureConnection)
     .flatMap((c, i) => {
-      const srcSub = partToSubsystem.get(c.source_part);
-      const tgtSub = partToSubsystem.get(c.target_part!);
-      if (!srcSub || !tgtSub) return [];
+      const sourceIds = resolveEndpointComponentIds(c.source_part, componentLookup);
+      const targetIds = resolveEndpointComponentIds(c.target_part, componentLookup);
 
-      const isInvolved =
-        srcSub === selectedSubsystem.id || tgtSub === selectedSubsystem.id;
-      const color = getEdgeColor(c.connection_type);
+      return sourceIds.flatMap((sourceId) =>
+        targetIds.flatMap((targetId) => {
+          const srcSub = partToSubsystem.get(sourceId);
+          const tgtSub = partToSubsystem.get(targetId);
+          if (!srcSub || !tgtSub) return [];
 
-      return [{
-        id: `ctx_edge_${i}_${c.source_part}_${c.target_part}`,
-        source: `ctx_${srcSub}_${c.source_part}`,
-        target: `ctx_${tgtSub}_${c.target_part}`,
-        type: 'smoothstep',
-        label: isInvolved ? c.connection_type : undefined,
-        labelStyle: { fontSize: 9, fill: color, fontWeight: 600 },
-        labelBgStyle: { fill: 'white', fillOpacity: 0.85 },
-        style: {
-          ...(isInvolved ? getEdgeStyle(c.connection_type) : { stroke: '#d1d5db', strokeWidth: 1 }),
-          opacity: isInvolved ? 1 : 0.15,
-          zIndex: isInvolved ? 10 : 1,
-        },
-        markerEnd: isInvolved ? { type: MarkerType.ArrowClosed, color } : undefined,
-        animated: isInvolved && c.connection_type === 'switching',
-      }] as Edge[];
+          const type = connectionType(c);
+          const isInvolved =
+            srcSub === selectedSubsystem.id || tgtSub === selectedSubsystem.id;
+          const color = getEdgeColor(type);
+
+          return [{
+            id: `ctx_edge_${c.id || i}_${sourceId}_${targetId}`,
+            source: `ctx_${srcSub}_${sourceId}`,
+            target: `ctx_${tgtSub}_${targetId}`,
+            sourceHandle: subsystemSourceHandle(sourceId),
+            targetHandle: subsystemTargetHandle(targetId),
+            type: 'smoothstep',
+            label: isInvolved ? type : undefined,
+            labelStyle: { fontSize: 9, fill: color, fontWeight: 600 },
+            labelBgStyle: { fill: 'white', fillOpacity: 0.85 },
+            style: {
+              ...(isInvolved ? getEdgeStyle(type) : { stroke: '#d1d5db', strokeWidth: 1 }),
+              opacity: isInvolved ? 1 : 0.15,
+              zIndex: isInvolved ? 10 : 1,
+            },
+            markerEnd: isInvolved ? { type: MarkerType.ArrowClosed, color } : undefined,
+            animated: isInvolved && type === 'switching',
+          }] as Edge[];
+        }),
+      );
     });
 
   // Subsystem-level abstraction edges: group_${id} → group_${id}.
@@ -401,6 +544,8 @@ function buildContextLayout(
       id: `ctx_sub_edge_${i}`,
       source: `group_${sc.source_subsystem_id}`,
       target: `group_${sc.target_subsystem_id}`,
+      sourceHandle: subsystemSourceHandle(`group_${sc.source_subsystem_id}`),
+      targetHandle: subsystemTargetHandle(`group_${sc.target_subsystem_id}`),
       type: 'smoothstep',
       label: `${sc.primary_type} (${sc.part_connection_count})`,
       labelStyle: { fontSize: 10, fill: color, fontWeight: 700 },
@@ -434,7 +579,7 @@ export function SubsystemDiagramView({
 
   const { nodes: computed, edges: computedEdges } = useMemo(() => {
     if (mode === 'isolated') {
-      return buildIsolatedLayout(selectedSubsystem, allSubsystems, allComponents, connections, subsystemConnections);
+      return buildIsolatedLayout(selectedSubsystem, allSubsystems, allComponents, connections);
     }
     return buildContextLayout(selectedSubsystem, allSubsystems, allComponents, connections, subsystemConnections);
   }, [mode, selectedSubsystem, allSubsystems, allComponents, connections, subsystemConnections]);

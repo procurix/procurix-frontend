@@ -442,12 +442,15 @@ export interface ConnectionStatusResponse {
 export interface SubsystemConnection {
     id?: string | null;
     name?: string | null;
+    label?: string | null;
     net_id?: string | null;
     connection_id?: string | null;
     source_port_id?: string | null;
     target_port_id?: string | null;
     source_subsystem?: string;
     target_subsystem?: string;
+    source_subsystem_name?: string | null;
+    target_subsystem_name?: string | null;
     interface_type?: string | null;
     signal_type?: string | null;
     direction?: string | null;
@@ -474,6 +477,8 @@ export interface SubsystemConnection {
 export type SubsystemInterfaceContract = SubsystemConnection & {
     evidence?: SubsystemInterfaceEvidence[];
     linked_requirements?: SubsystemRequirementItem[];
+    linked_subsystem_requirements?: SubsystemRequirementItem[];
+    linked_subsystem_requirements_count?: number;
 };
 
 export interface SubsystemInterfaceEvidence {
@@ -536,9 +541,13 @@ export interface SubsystemRequirementItem {
     parent_req_key?: string | null;
     parent_req_title?: string | null;
     interface_id?: string | null;
+    interface_name?: string | null;
+    interface_type?: string | null;
+    interface_label?: string | null;
 
     // Mapped parts
     mapped_part_ids?: string[];
+    mapped_parts?: ReviewSubsystem['parts'];
     source_mpns?: string[];
     mapped_components: string[];
 
@@ -1913,6 +1922,43 @@ export interface SubsystemReadinessResponse {
     warnings?: SubsystemReadinessItem[];
 }
 
+export type SubsystemReviewProposalStatus = 'pending' | 'applied' | 'dismissed' | 'invalid';
+export type SubsystemReviewProposalType =
+    | 'rename_subsystem'
+    | 'move_part'
+    | 'merge_subsystems'
+    | 'split_subsystem'
+    | 'create_interface_requirement'
+    | 'flag_weak_member'
+    | 'flag_unmapped_requirement'
+    | 'flag_duplicate_name';
+
+export interface SubsystemReviewProposal {
+    id: string;
+    design_id: string;
+    proposal_type: SubsystemReviewProposalType;
+    status: SubsystemReviewProposalStatus;
+    title: string;
+    description?: string | null;
+    rationale?: string | null;
+    payload: Record<string, unknown>;
+    validation_errors: string[];
+    source: 'langgraph' | 'manual' | 'system' | string;
+    confidence?: number | null;
+    dismissed_reason?: string | null;
+    created_at?: string | null;
+    updated_at?: string | null;
+    applied_at?: string | null;
+    dismissed_at?: string | null;
+}
+
+export interface SubsystemReviewProposalsResponse {
+    design_id: string;
+    proposals: SubsystemReviewProposal[];
+    count: number;
+    trace?: string[];
+}
+
 export async function generateSubsystems(designId: string): Promise<SubsystemsResponse> {
     return apiJSON(`${BASE_URL}/designs/${designId}/subsystems/generate`, {
         method: 'POST',
@@ -2092,6 +2138,41 @@ export async function getSubsystemPorts(designId: string): Promise<{ ports: Subs
 
 export async function getSubsystemReadiness(designId: string): Promise<SubsystemReadinessResponse> {
     return apiJSON(`${BASE_URL}/designs/${designId}/subsystems/readiness`);
+}
+
+export async function suggestSubsystemReview(designId: string): Promise<SubsystemReviewProposalsResponse> {
+    return apiJSON(`${BASE_URL}/designs/${designId}/subsystems/review/suggest`, {
+        method: 'POST',
+    });
+}
+
+export async function getSubsystemReviewProposals(
+    designId: string,
+    status?: SubsystemReviewProposalStatus,
+): Promise<SubsystemReviewProposalsResponse> {
+    const suffix = status ? `?status=${encodeURIComponent(status)}` : '';
+    return apiJSON(`${BASE_URL}/designs/${designId}/subsystems/review/proposals${suffix}`);
+}
+
+export async function applySubsystemReviewProposal(
+    designId: string,
+    proposalId: string,
+): Promise<{ proposal: SubsystemReviewProposal; readiness: SubsystemReadinessResponse }> {
+    return apiJSON(`${BASE_URL}/designs/${designId}/subsystems/review/proposals/${encodeURIComponent(proposalId)}/apply`, {
+        method: 'POST',
+    });
+}
+
+export async function dismissSubsystemReviewProposal(
+    designId: string,
+    proposalId: string,
+    reason?: string,
+): Promise<{ proposal: SubsystemReviewProposal }> {
+    return apiJSON(`${BASE_URL}/designs/${designId}/subsystems/review/proposals/${encodeURIComponent(proposalId)}/dismiss`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ reason }),
+    });
 }
 
 export async function completeSubsystemArchitecture(designId: string): Promise<SubsystemReadinessResponse & { success: boolean; fsm_state: string }> {
@@ -2300,7 +2381,24 @@ export interface ReviewResponse {
             status: string; ai_generated?: boolean; confidence?: number | null;
             verification_method?: string | null;
             child_subsystem_req_count: number; child_subsystem_req_ids: string[];
+            child_subsystem_requirements?: Array<{
+                req_id: string;
+                req_key?: string | null;
+                title?: string | null;
+                status: string;
+                subsystem_id: string;
+                subsystem_name?: string | null;
+                interface_id?: string | null;
+                interface_label?: string | null;
+                stale?: boolean;
+            }>;
         }>;
+    };
+    interfaces?: {
+        total: number;
+        by_status: Record<string, number>;
+        stale: number;
+        items: SubsystemInterfaceContract[];
     };
     subsystem_requirements: {
         total: number;

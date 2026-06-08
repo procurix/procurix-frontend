@@ -5,6 +5,7 @@ import { useSession } from '@/app/context/SessionContext';
 import { useQueryParams } from '@/app/shared/hooks/useQueryParams';
 import {
   addSubsystemPart,
+  applySubsystemReviewProposal,
   completeSubsystemArchitecture,
   confirmSubsystem,
   confirmSubsystemInterface,
@@ -12,13 +13,16 @@ import {
   createSubsystem,
   createSubsystemRequirement,
   deleteSubsystemRequirement,
+  dismissSubsystemReviewProposal,
   generateAllSubsystemRequirements,
   generateSubsystemRequirements,
   generateSubsystems,
   getSubsystemRequirementCoverage,
   getSubsystemInterfaceEvidence,
   getSubsystemReadiness,
+  getSubsystemReviewProposals,
   getSubsystems,
+  getConnections,
   mergeSubsystems,
   moveSubsystemPart,
   regenerateStaleSubsystemRequirements,
@@ -27,14 +31,18 @@ import {
   rejectSubsystemInterface,
   rejectSubsystemRequirement,
   splitSubsystem,
+  suggestSubsystemReview,
   updateSubsystem,
   updateSubsystemInterface,
   updateSubsystemRequirement,
+  type Connection,
   type SubsystemConnection,
   type SubsystemInterfaceEvidence,
   type SubsystemRequirementCoverageResponse,
   type SubsystemReadinessResponse,
   type SubsystemRequirementItem,
+  type SubsystemReviewProposal,
+  type SubsystemReviewProposalStatus,
   type SubsystemsResponse,
   type SubsystemSummary,
 } from '@/app/services/api';
@@ -116,12 +124,19 @@ export function SubsystemsPage() {
   const activeSessionId = querySessionId || contextSessionId;
   const [subsystems, setSubsystems] = useState<Subsystem[]>([]);
   const [subsystemConnections, setSubsystemConnections] = useState<SubsystemConnection[]>([]);
+  const [architectureConnections, setArchitectureConnections] = useState<Connection[]>([]);
   const [readiness, setReadiness] = useState<SubsystemReadinessResponse | null>(null);
   const [coverage, setCoverage] = useState<SubsystemRequirementCoverageResponse | null>(null);
   const [isLoading, setIsLoading] = useState(true);
   const [isGenerating, setIsGenerating] = useState(false);
   const [isCompleting, setIsCompleting] = useState(false);
   const [isGeneratingSubReqs, setIsGeneratingSubReqs] = useState(false);
+  const [reviewProposals, setReviewProposals] = useState<SubsystemReviewProposal[]>([]);
+  const [reviewProposalFilter, setReviewProposalFilter] = useState<SubsystemReviewProposalStatus>('pending');
+  const [reviewProposalsLoading, setReviewProposalsLoading] = useState(false);
+  const [reviewProposalsError, setReviewProposalsError] = useState<string | null>(null);
+  const [suggestionsAvailable, setSuggestionsAvailable] = useState<boolean | null>(null);
+  const [isSuggestingReview, setIsSuggestingReview] = useState(false);
   const [error, setError] = useState<string | null>(null);
 
   useEffect(() => {
@@ -165,11 +180,38 @@ export function SubsystemsPage() {
     }
     setSubsystems(next.subsystems.map(mapSubsystem));
     setSubsystemConnections(next.connections || []);
+    try {
+      const connectionResponse = await getConnections(activeSessionId, activeSessionId);
+      setArchitectureConnections(connectionResponse.connections || []);
+    } catch {
+      setArchitectureConnections([]);
+    }
     setReadiness(await getSubsystemReadiness(activeSessionId));
     try {
       setCoverage(await getSubsystemRequirementCoverage(activeSessionId));
     } catch {
       setCoverage(null);
+    }
+  }, [activeSessionId]);
+
+  const loadReviewProposals = useCallback(async (status: SubsystemReviewProposalStatus = 'pending') => {
+    if (!activeSessionId) return;
+    setReviewProposalsLoading(true);
+    setReviewProposalsError(null);
+    try {
+      const response = await getSubsystemReviewProposals(activeSessionId, status);
+      setReviewProposals(response.proposals || []);
+      setSuggestionsAvailable(true);
+    } catch (err) {
+      const message = err instanceof Error ? err.message : 'Failed to load review suggestions';
+      if (message.startsWith('404 ')) {
+        setSuggestionsAvailable(false);
+        setReviewProposals([]);
+        return;
+      }
+      setReviewProposalsError(message);
+    } finally {
+      setReviewProposalsLoading(false);
     }
   }, [activeSessionId]);
 
@@ -187,6 +229,7 @@ export function SubsystemsPage() {
         setIsLoading(true);
         if (!querySessionId) updateParams(activeSessionId);
         await refresh({ generateIfEmpty: true });
+        await loadReviewProposals('pending');
       } catch (err) {
         if (!isCurrent) return;
         const message = err instanceof Error ? err.message : 'Failed to load subsystem architecture';
@@ -198,7 +241,7 @@ export function SubsystemsPage() {
     };
     run();
     return () => { isCurrent = false; };
-  }, [activeSessionId, querySessionId, refresh, refreshTrigger, updateParams]);
+  }, [activeSessionId, querySessionId, loadReviewProposals, refresh, refreshTrigger, updateParams]);
 
   const handleRegenerate = useCallback(async () => {
     if (!activeSessionId) return;
@@ -211,6 +254,12 @@ export function SubsystemsPage() {
       const response = await generateSubsystemsOnce(activeSessionId);
       setSubsystems(response.subsystems.map(mapSubsystem));
       setSubsystemConnections(response.connections || []);
+      try {
+        const connectionResponse = await getConnections(activeSessionId, activeSessionId);
+        setArchitectureConnections(connectionResponse.connections || []);
+      } catch {
+        setArchitectureConnections([]);
+      }
       setReadiness(await getSubsystemReadiness(activeSessionId));
       if (!wasAlreadyGenerating) {
         toast.success('Subsystem candidates regenerated.');
@@ -246,6 +295,12 @@ export function SubsystemsPage() {
     const response = await moveSubsystemPart(activeSessionId, designPartId, targetSubsystemId, sourceSubsystemId);
     setSubsystems(response.subsystems.map(mapSubsystem));
     setSubsystemConnections(response.connections || []);
+    try {
+      const connectionResponse = await getConnections(activeSessionId, activeSessionId);
+      setArchitectureConnections(connectionResponse.connections || []);
+    } catch {
+      setArchitectureConnections([]);
+    }
     setReadiness(await getSubsystemReadiness(activeSessionId));
     toast.success('Part moved.');
   }, [activeSessionId]);
@@ -285,6 +340,12 @@ export function SubsystemsPage() {
     const response = await mergeSubsystems(activeSessionId, payload);
     setSubsystems(response.subsystems.map(mapSubsystem));
     setSubsystemConnections(response.connections || []);
+    try {
+      const connectionResponse = await getConnections(activeSessionId, activeSessionId);
+      setArchitectureConnections(connectionResponse.connections || []);
+    } catch {
+      setArchitectureConnections([]);
+    }
     setReadiness(await getSubsystemReadiness(activeSessionId));
     setCoverage(await getSubsystemRequirementCoverage(activeSessionId));
     toast.success('Subsystems merged.');
@@ -298,6 +359,12 @@ export function SubsystemsPage() {
     const response = await splitSubsystem(activeSessionId, subsystemId, { groups });
     setSubsystems(response.subsystems.map(mapSubsystem));
     setSubsystemConnections(response.connections || []);
+    try {
+      const connectionResponse = await getConnections(activeSessionId, activeSessionId);
+      setArchitectureConnections(connectionResponse.connections || []);
+    } catch {
+      setArchitectureConnections([]);
+    }
     setReadiness(await getSubsystemReadiness(activeSessionId));
     setCoverage(await getSubsystemRequirementCoverage(activeSessionId));
     toast.success('Subsystem split.');
@@ -439,6 +506,74 @@ export function SubsystemsPage() {
     await refresh();
   }, [activeSessionId, refresh]);
 
+  const handleReviewProposalFilterChange = useCallback(async (status: SubsystemReviewProposalStatus) => {
+    setReviewProposalFilter(status);
+    await loadReviewProposals(status);
+  }, [loadReviewProposals]);
+
+  const handleSuggestReviewProposals = useCallback(async () => {
+    if (!activeSessionId) return;
+    setIsSuggestingReview(true);
+    setReviewProposalsError(null);
+    try {
+      const response = await suggestSubsystemReview(activeSessionId);
+      setReviewProposals(response.proposals || []);
+      setReviewProposalFilter('pending');
+      setSuggestionsAvailable(true);
+      toast.success(response.count ? `Created ${response.count} review suggestion${response.count === 1 ? '' : 's'}.` : 'No new review suggestions.');
+    } catch (err) {
+      const message = err instanceof Error ? err.message : 'Failed to suggest improvements';
+      if (message.startsWith('404 ')) {
+        setSuggestionsAvailable(false);
+        toast.info('Review suggestions are not enabled for this environment.');
+        return;
+      }
+      setReviewProposalsError(message);
+      toast.error(message);
+    } finally {
+      setIsSuggestingReview(false);
+    }
+  }, [activeSessionId]);
+
+  const handleApplyReviewProposal = useCallback(async (proposalId: string) => {
+    if (!activeSessionId) return;
+    try {
+      const response = await applySubsystemReviewProposal(activeSessionId, proposalId);
+      setReviewProposals((prev) => prev.map((proposal) => (
+        proposal.id === response.proposal.id ? response.proposal : proposal
+      )));
+      setReadiness(response.readiness);
+      await refresh();
+      try {
+        setCoverage(await getSubsystemRequirementCoverage(activeSessionId));
+      } catch {
+        setCoverage(null);
+      }
+      await loadReviewProposals(reviewProposalFilter);
+      toast.success('Review suggestion applied.');
+    } catch (err) {
+      const message = err instanceof Error ? err.message : 'Failed to apply review suggestion';
+      if (message.startsWith('409 ')) {
+        await loadReviewProposals(reviewProposalFilter);
+      }
+      toast.error(message);
+    }
+  }, [activeSessionId, loadReviewProposals, refresh, reviewProposalFilter]);
+
+  const handleDismissReviewProposal = useCallback(async (proposalId: string, reason?: string) => {
+    if (!activeSessionId) return;
+    try {
+      const response = await dismissSubsystemReviewProposal(activeSessionId, proposalId, reason);
+      setReviewProposals((prev) => prev.map((proposal) => (
+        proposal.id === response.proposal.id ? response.proposal : proposal
+      )));
+      await loadReviewProposals(reviewProposalFilter);
+      toast.success('Review suggestion dismissed.');
+    } catch (err) {
+      toast.error(err instanceof Error ? err.message : 'Failed to dismiss review suggestion');
+    }
+  }, [activeSessionId, loadReviewProposals, reviewProposalFilter]);
+
   const handleCreateSubReq = useCallback(async (subsystemId: string, fields: Partial<SubsystemRequirementItem>) => {
     if (!activeSessionId) return;
     await createSubsystemRequirement(activeSessionId, subsystemId, fields);
@@ -479,12 +614,23 @@ export function SubsystemsPage() {
       subsystems={subsystems}
       components={components}
       subsystemConnections={subsystemConnections}
+      architectureConnections={architectureConnections}
       readiness={readiness}
       coverage={coverage}
+      reviewProposals={reviewProposals}
+      reviewProposalFilter={reviewProposalFilter}
+      reviewProposalsLoading={reviewProposalsLoading}
+      reviewProposalsError={reviewProposalsError}
+      suggestionsAvailable={suggestionsAvailable}
+      isSuggestingReview={isSuggestingReview}
       isGenerating={isGenerating}
       isCompleting={isCompleting}
       onRefresh={() => refresh()}
       onRegenerate={handleRegenerate}
+      onReviewProposalFilterChange={handleReviewProposalFilterChange}
+      onSuggestReviewProposals={handleSuggestReviewProposals}
+      onApplyReviewProposal={handleApplyReviewProposal}
+      onDismissReviewProposal={handleDismissReviewProposal}
       onConfirm={handleConfirm}
       onReject={handleReject}
       onCreateSubsystem={handleCreateSubsystem}

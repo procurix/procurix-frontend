@@ -2,6 +2,7 @@ export {
   bulkUpdateClassification,
   classifyParts,
   classifyPartsStream,
+  classifyPartsStreamParallel,
   confirmPartIdentificationReview,
   confirmPartReview,
   confirmSystemType,
@@ -29,6 +30,7 @@ export {
   updatePartDatasheetUrl,
   validateParts,
   analyzeSystem,
+  analyzeSystemStream,
 } from './legacy';
 
 export type {
@@ -51,6 +53,8 @@ export type {
   PartReviewResponse,
   PartReviewUiStatus,
   PartSpecEvidence,
+  AnalyzeStreamEvent,
+  ClassificationStreamParallelEvent,
   SystemSuggestion,
   ValidationResult,
   WebCandidate,

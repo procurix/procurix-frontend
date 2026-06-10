@@ -10,9 +10,25 @@ interface BOMLibraryProps {
   sessions: BOMSession[];
   onSelectSession: (session: BOMSession) => void;
   onNewBOM: () => void;
+  total?: number;
+  totalCompleted?: number;
+  totalInProgress?: number;
+  hasMore?: boolean;
+  isLoadingMore?: boolean;
+  onLoadMore?: () => void;
 }
 
-export function BOMLibrary({ sessions, onSelectSession, onNewBOM }: BOMLibraryProps) {
+export function BOMLibrary({
+  sessions,
+  onSelectSession,
+  onNewBOM,
+  total,
+  totalCompleted,
+  totalInProgress,
+  hasMore,
+  isLoadingMore,
+  onLoadMore,
+}: BOMLibraryProps) {
   const [searchQuery, setSearchQuery] = useState('');
   const [filterStatus, setFilterStatus] = useState<'all' | 'complete' | 'in-progress'>('all');
 
@@ -44,8 +60,11 @@ export function BOMLibrary({ sessions, onSelectSession, onNewBOM }: BOMLibraryPr
     return matchesSearch && matchesFilter;
   });
 
-  const completedCount = sessions.filter(isComplete).length;
-  const inProgressCount = sessions.length - completedCount;
+  // Prefer the server-side totals when available; fall back to locally-loaded
+  // counts otherwise so the component still works in unpaginated contexts.
+  const loadedCompletedCount = sessions.filter(isComplete).length;
+  const completedCount = totalCompleted ?? loadedCompletedCount;
+  const inProgressCount = totalInProgress ?? (sessions.length - loadedCompletedCount);
 
   return (
     <div className="h-screen flex flex-col bg-gradient-to-br from-blue-50 via-white to-purple-50">
@@ -87,7 +106,7 @@ export function BOMLibrary({ sessions, onSelectSession, onNewBOM }: BOMLibraryPr
                   <Package className="h-5 w-5 text-blue-600" />
                 </div>
                 <div>
-                  <div className="text-2xl font-bold text-gray-900">{sessions.length}</div>
+                  <div className="text-2xl font-bold text-gray-900">{total ?? sessions.length}</div>
                   <div className="text-xs text-gray-600">Total BOMs</div>
                 </div>
               </div>
@@ -290,6 +309,27 @@ export function BOMLibrary({ sessions, onSelectSession, onNewBOM }: BOMLibraryPr
                   </button>
                 );
               })}
+            </div>
+          )}
+
+          {/* Load more — paginated server-side. Only visible when there are
+              more BOMs beyond what we've already fetched. */}
+          {(hasMore || (typeof total === 'number' && sessions.length > 0)) && (
+            <div className="mt-6 flex flex-col items-center gap-2">
+              {typeof total === 'number' && (
+                <div className="text-xs text-gray-500">
+                  Showing {sessions.length} of {total}
+                </div>
+              )}
+              {hasMore && onLoadMore && (
+                <Button
+                  variant="outline"
+                  onClick={onLoadMore}
+                  disabled={isLoadingMore}
+                >
+                  {isLoadingMore ? 'Loading…' : 'Load more'}
+                </Button>
+              )}
             </div>
           )}
         </div>

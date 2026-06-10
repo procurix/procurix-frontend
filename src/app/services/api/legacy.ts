@@ -192,6 +192,8 @@ export interface WebCandidate {
 
 export type IdentifyStreamEvent =
     | { type: 'start'; total: number }
+    | { type: 'cache_pass'; cached_count: number; remaining: number }
+    | { type: 'external_lookup_start'; count: number; concurrency: number }
     | { type: 'searching'; mpn: string }
     | { type: 'found'; mpn: string; source: string; category: string | null; description: string | null; datasheet_url?: string | null; product_url?: string | null; params?: PartParams | null }
     | { type: 'web_found'; mpn: string; source: string; candidates: WebCandidate[] }
@@ -769,8 +771,35 @@ export async function uploadDesignBOM(
     };
 }
 
+export interface DesignListPage {
+    items: Design[];
+    total: number;
+    total_completed: number;
+    total_in_progress: number;
+    limit: number;
+    offset: number;
+    has_more: boolean;
+}
+
+/** Paginated. Use this for the library page; `listDesigns()` (which fetches
+ * the first page only) is kept as a thin alias for any other callers. */
+export async function listDesignsPaged(opts?: {
+    limit?: number;
+    offset?: number;
+    userId?: string;
+}): Promise<DesignListPage> {
+    const limit = opts?.limit ?? 20;
+    const offset = opts?.offset ?? 0;
+    const params = new URLSearchParams({ limit: String(limit), offset: String(offset) });
+    if (opts?.userId) params.set('user_id', opts.userId);
+    return apiJSON(`${BASE_URL}/designs?${params.toString()}`);
+}
+
 export async function listDesigns(): Promise<Design[]> {
-    return apiJSON(`${BASE_URL}/designs`);
+    // Backwards-compatible: returns only the first page (20). Other call sites
+    // that need full results should migrate to listDesignsPaged().
+    const page = await listDesignsPaged();
+    return page.items;
 }
 
 export async function getDesign(designId: string): Promise<Design> {
@@ -882,24 +911,47 @@ export function fsmToStage(fsm: string): number {
     return map[fsm] ?? 1;
 }
 
-export async function getAllBOMs(): Promise<{
-    boms: Array<{
-        bom_id: string;
-        system_type: string | null;
-        current_stage: number;
-        total_parts: number;
-        created_at: string;
-    }>;
-}> {
-    const designs = await listDesigns();
+export interface BomListItem {
+    bom_id: string;
+    system_type: string | null;
+    current_stage: number;
+    total_parts: number;
+    created_at: string;
+}
+
+export interface BomListPage {
+    boms: BomListItem[];
+    total: number;
+    total_completed: number;
+    total_in_progress: number;
+    limit: number;
+    offset: number;
+    has_more: boolean;
+}
+
+/** Library page: paginated. Defaults to 20 per page. */
+export async function getAllBOMs(opts?: {
+    limit?: number;
+    offset?: number;
+}): Promise<BomListPage> {
+    const page = await listDesignsPaged({
+        limit: opts?.limit ?? 20,
+        offset: opts?.offset ?? 0,
+    });
     return {
-        boms: designs.map(d => ({
+        boms: page.items.map(d => ({
             bom_id: d.id,
             system_type: d.project_name,
             current_stage: d.current_stage ?? fsmToStage(d.fsm_state),
             total_parts: 0,
             created_at: d.created_at,
         })),
+        total: page.total,
+        total_completed: page.total_completed,
+        total_in_progress: page.total_in_progress,
+        limit: page.limit,
+        offset: page.offset,
+        has_more: page.has_more,
     };
 }
 
@@ -981,6 +1033,52 @@ export async function classifyPartsStream(
         for (const line of lines) {
             if (line.startsWith('data: ')) {
                 try { onEvent(JSON.parse(line.slice(6)) as ClassificationStreamEvent); } catch { /* skip */ }
+            }
+        }
+    }
+}
+
+// New event shape from the parallel-streaming endpoint. Identification replay
+// events keep their existing types; only the classification phase changes.
+// Note: nullable backend values are normalised to undefined here so they fit
+// the existing StreamLine consumer without per-callsite null handling.
+export type ClassificationStreamParallelEvent =
+    | { type: 'start'; total: number; message: string }
+    | { type: 'searching'; mpn: string }
+    | { type: 'exact_match'; mpn: string; category?: string; source?: string; description?: string; candidates?: PartCandidate[] }
+    | { type: 'multi_match'; mpn: string; candidate_count: number; source?: string; description?: string; candidates?: PartCandidate[] }
+    | { type: 'web_found'; mpn: string; source?: string; description?: string; datasheet_url?: string; product_url?: string; confidence?: string }
+    | { type: 'found' | 'cached'; mpn: string; category?: string; source?: string; candidates?: PartCandidate[]; description?: string }
+    | { type: 'not_found'; mpn: string }
+    | { type: 'ready'; total: number; batch_count: number; batch_size: number; parallel: number }
+    | { type: 'classified'; index: number; mpn: string; classification: 'non-auxiliary' | 'auxiliary'; reasoning?: string; instance_function?: string }
+    | { type: 'batch_failed'; batch_index: number; message: string }
+    | { type: 'complete'; total: number; classified_count: number; counts: { non_auxiliary: number; auxiliary: number }; batch_failures: { batch_index: number; message: string }[]; parts?: PartDetail[] }
+    | { type: 'error'; message: string };
+
+/** Parallel-batched, per-part-streaming classification. Verdicts arrive as
+ * Gemini produces each one. Total time ~10s for typical BOMs vs ~30s single-call. */
+export async function classifyPartsStreamParallel(
+    designId: string,
+    onEvent: (event: ClassificationStreamParallelEvent) => void,
+    options?: { contextHint?: string },
+): Promise<void> {
+    const url = new URL(`${BASE_URL}/designs/${designId}/classification/stream/parallel`);
+    if (options?.contextHint?.trim()) url.searchParams.set('context_hint', options.contextHint.trim());
+    const res = await apiFetch(url.toString(), { method: 'POST' });
+    if (!res.ok) throw new Error(`${res.status} ${await res.text()}`);
+    const reader = res.body!.getReader();
+    const decoder = new TextDecoder();
+    let buffer = '';
+    while (true) {
+        const { done, value } = await reader.read();
+        if (done) break;
+        buffer += decoder.decode(value, { stream: true });
+        const lines = buffer.split('\n');
+        buffer = lines.pop() ?? '';
+        for (const line of lines) {
+            if (line.startsWith('data: ')) {
+                try { onEvent(JSON.parse(line.slice(6)) as ClassificationStreamParallelEvent); } catch { /* skip */ }
             }
         }
     }
@@ -1141,6 +1239,57 @@ export async function analyzeSystem(designId: string, additionalContext?: string
         body: JSON.stringify({ additional_context: additionalContext ?? null }),
     });
     return { suggestions: [] };
+}
+
+export type AnalyzeStreamEvent =
+    | { type: 'start' }
+    | { type: 'suggestion'; index: number; suggestion: SystemSuggestion }
+    | { type: 'cache_hit'; count: number; suggestions: SystemSuggestion[] }
+    | { type: 'complete'; count: number; suggestions: SystemSuggestion[] }
+    | { type: 'error'; message: string };
+
+/** Stream system-analysis suggestions from Gemini as they arrive.
+ * Each suggestion event fires as soon as one full suggestion object is
+ * available. Total elapsed time is the same as analyzeSystem() but the
+ * UI sees the first suggestion in ~1-2s instead of ~30s. */
+export async function analyzeSystemStream(
+    designId: string,
+    additionalContext: string | undefined,
+    onEvent: (event: AnalyzeStreamEvent) => void,
+    options?: { forceRefresh?: boolean },
+): Promise<void> {
+    const params = options?.forceRefresh ? '?force_refresh=true' : '';
+    const res = await apiFetch(
+        `${BASE_URL}/designs/${designId}/pipeline/analyze/stream${params}`,
+        {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({ additional_context: additionalContext ?? null }),
+        },
+    );
+    if (!res.ok || !res.body) {
+        const text = await res.text();
+        throw new Error(`Analyze stream failed: ${res.status} ${text}`);
+    }
+    const reader = res.body.getReader();
+    const decoder = new TextDecoder();
+    let buf = '';
+    while (true) {
+        const { done, value } = await reader.read();
+        if (done) break;
+        buf += decoder.decode(value, { stream: true });
+        const lines = buf.split('\n');
+        buf = lines.pop() ?? '';
+        for (const line of lines) {
+            if (!line.startsWith('data: ')) continue;
+            try {
+                const event = JSON.parse(line.slice(6)) as AnalyzeStreamEvent;
+                onEvent(event);
+            } catch {
+                // skip malformed line
+            }
+        }
+    }
 }
 
 export async function getSystemAnalysis(designId: string): Promise<{

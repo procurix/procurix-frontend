@@ -5,7 +5,7 @@ import { CheckCircle, Cpu, Zap, AlertCircle, Loader2, Search, X, ArrowRight, Rot
 import { motion, AnimatePresence } from 'motion/react';
 import { toast } from 'sonner';
 import { useSession } from '@/app/context/SessionContext';
-import { classifyPartsStream, selectPartMatch, getClassification, bulkUpdateClassification, confirmWebPart, saveCustomPart, suggestPartFields } from '@/app/services/api';
+import { classifyPartsStream, classifyPartsStreamParallel, selectPartMatch, getClassification, bulkUpdateClassification, confirmWebPart, saveCustomPart, suggestPartFields } from '@/app/services/api';
 import { PartModelDrawer } from '@/app/shared/components/PartModelDrawer';
 
 // ── Types ─────────────────────────────────────────────────────────────────────
@@ -22,6 +22,7 @@ interface StreamLine {
   multiMatch?: boolean;
   webFound?: boolean;
   notFound?: boolean;
+  classification?: 'non-auxiliary' | 'auxiliary' | null;
 }
 
 // Carries enrichment result for parts needing user action in selection phase
@@ -100,7 +101,7 @@ function ResearchPhase({ sessionId, onComplete }: {
     if (startedRef.current) return;
     startedRef.current = true;
 
-    classifyPartsStream(
+    classifyPartsStreamParallel(
       sessionId,
       (event) => {
         if (event.type === 'start') {
@@ -108,7 +109,7 @@ function ResearchPhase({ sessionId, onComplete }: {
           push({ id: 'start', icon: 'classify', text: event.message });
         } else if (event.type === 'searching') {
           push({ id: event.mpn, icon: 'spin', text: `Looking up`, mpn: event.mpn });
-        // ── New cascade event types ──
+        // ── Identification replay event types ──
         } else if (event.type === 'exact_match') {
           const meta = [event.category, event.candidates?.[0]?.manufacturer].filter(Boolean).join(' · ');
           replace(event.mpn, {
@@ -145,7 +146,6 @@ function ResearchPhase({ sessionId, onComplete }: {
             confidence: event.confidence,
             source: event.source,
           });
-        // ── Legacy event types (cache hits emitted as found/cached) ──
         } else if (event.type === 'found' || event.type === 'cached') {
           const meta = [event.category, event.candidates?.[0]?.manufacturer].filter(Boolean).join(' · ');
           const multi = (event.candidates?.length ?? 0) > 1 && !event.candidates?.[0]?.is_exact_match;
@@ -167,12 +167,35 @@ function ResearchPhase({ sessionId, onComplete }: {
         } else if (event.type === 'not_found') {
           replace(event.mpn, { icon: 'miss', text: 'not found — add manually', notFound: true });
           needsActionRef.current.push({ mpn: event.mpn, status: 'not_found' });
-        } else if (event.type === 'classifying') {
-          push({ id: 'classifying', icon: 'classify', text: event.message });
+        // ── New parallel-classify event types ──
+        } else if (event.type === 'ready') {
+          push({
+            id: 'classifying',
+            icon: 'classify',
+            text: `Classifying ${event.total} parts (${event.batch_count} batches × ${event.batch_size}, ${event.parallel} parallel)…`,
+          });
+        } else if (event.type === 'classified') {
+          // Append the verdict to the part's existing row.
+          const tag =
+            event.classification === 'non-auxiliary' ? 'fundamental' : 'support';
+          replace(event.mpn, {
+            meta: event.instance_function || event.reasoning || tag,
+            classification: event.classification,
+          });
+        } else if (event.type === 'batch_failed') {
+          push({
+            id: `batch_failed_${event.batch_index}`,
+            icon: 'miss',
+            text: `Batch ${event.batch_index + 1} failed: ${event.message}`,
+          });
         } else if (event.type === 'complete') {
-          push({ id: 'done', icon: 'check', text: `Done — ${event.result.non_auxiliary_parts} fundamental, ${event.result.auxiliary_parts} auxiliary` });
+          push({
+            id: 'done',
+            icon: 'check',
+            text: `Done — ${event.counts.non_auxiliary} fundamental, ${event.counts.auxiliary} support`,
+          });
           setDone(true);
-          setTimeout(() => onComplete(event.result.parts ?? [], needsActionRef.current), 600);
+          setTimeout(() => onComplete(event.parts ?? [], needsActionRef.current), 600);
         } else if (event.type === 'error') {
           setError(event.message);
         }
@@ -220,6 +243,16 @@ function ResearchPhase({ sessionId, onComplete }: {
                 </span>
                 {line.meta && <span className="text-gray-600 ml-2 text-xs">{line.meta}</span>}
                 {line.source && <span className="ml-2">{srcBadge(line.source)}</span>}
+                {line.classification === 'non-auxiliary' && (
+                  <span className="ml-2 inline-block rounded border border-blue-700 bg-blue-950/40 px-1.5 py-0.5 text-[10px] text-blue-300">
+                    fundamental
+                  </span>
+                )}
+                {line.classification === 'auxiliary' && (
+                  <span className="ml-2 inline-block rounded border border-gray-700 bg-gray-800/40 px-1.5 py-0.5 text-[10px] text-gray-400">
+                    support
+                  </span>
+                )}
               </div>
             </motion.div>
           ))}
@@ -621,15 +654,23 @@ function ClassifyPhase({ initialParts, onComplete }: {
   const handleApply = async () => {
     if (!sessionId) return;
     const changes = getPendingChanges();
-    if (changes.length === 0) { onComplete(localComponents); return; }
+    console.log('[classify] handleApply: changes=', changes.length, 'localComponents=', localComponents.length);
+    if (changes.length === 0) {
+      console.log('[classify] No pending changes — calling onComplete directly');
+      onComplete(localComponents);
+      return;
+    }
     setIsApplying(true);
     try {
+      console.log('[classify] PUT /classification/bulk', changes);
       await bulkUpdateClassification(sessionId, changes, setCurrentStage);
+      console.log('[classify] Bulk update succeeded; calling onComplete');
       changes.forEach(ch => { originalRef.current[ch.mpn] = ch.new_classification; });
       toast.success(`Applied ${changes.length} change${changes.length !== 1 ? 's' : ''}`);
       onComplete(localComponents);
     } catch (e: any) {
-      toast.error(e.message);
+      console.error('[classify] Bulk update failed', e);
+      toast.error(e?.message || 'Failed to apply changes');
     } finally {
       setIsApplying(false);
     }

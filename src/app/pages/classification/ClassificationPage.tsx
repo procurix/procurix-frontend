@@ -35,6 +35,7 @@ export function ClassificationPage() {
     const fundamentalCount = classifiedComponents.filter(c => c.isFundamental === true).length;
     const auxiliaryCount = classifiedComponents.filter(c => c.isFundamental === false).length;
 
+    console.log('[classification-page] handleClassificationComplete called; fundamental=', fundamentalCount, 'aux=', auxiliaryCount, '→ navigating to enrichment');
     toast.success(`Classification complete! ${fundamentalCount} fundamental, ${auxiliaryCount} auxiliary`);
     navigateToStage('enrichment');
   };

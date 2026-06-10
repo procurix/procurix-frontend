@@ -349,9 +349,59 @@ function ResearchPhase({
   const needsActionRef = useRef<ActionPart[]>([]);
   const lastEventAtRef = useRef(Date.now());
 
-  const push = (line: StreamLine) => setLines(prev => [...prev, line]);
-  const replace = (id: string, update: Partial<StreamLine>) =>
-    setLines(prev => prev.map(l => (l.id === id ? { ...l, ...update } : l)));
+  // Pending-updates buffer: the SSE stream can fire 50+ events in under
+  // 200ms during a cache-only run. Calling setLines once per event triggers
+  // 50 React reconciliations in quick succession, which React 18 batches
+  // imperfectly and can stall the UI for hundreds of ms. We coalesce into
+  // one setLines call every ~50ms — fast enough to feel real-time, slow
+  // enough that React renders smoothly.
+  const pendingPushRef = useRef<StreamLine[]>([]);
+  const pendingUpsertRef = useRef<Map<string, StreamLine>>(new Map());
+  const flushTimerRef = useRef<number | null>(null);
+
+  const scheduleFlush = () => {
+    if (flushTimerRef.current != null) return;
+    flushTimerRef.current = window.setTimeout(() => {
+      flushTimerRef.current = null;
+      const pushed = pendingPushRef.current;
+      const upserted = pendingUpsertRef.current;
+      if (pushed.length === 0 && upserted.size === 0) return;
+      pendingPushRef.current = [];
+      pendingUpsertRef.current = new Map();
+      setLines(prev => {
+        let next = prev.slice();
+        // Apply upserts first (preserve identity for already-seen rows)
+        if (upserted.size > 0) {
+          const updated = new Set<string>();
+          next = next.map(l => {
+            const upd = upserted.get(l.id);
+            if (upd) {
+              updated.add(l.id);
+              return { ...l, ...upd };
+            }
+            return l;
+          });
+          // Append upserts that didn't replace existing rows
+          for (const [id, line] of upserted) {
+            if (!updated.has(id)) next.push(line);
+          }
+        }
+        if (pushed.length > 0) next.push(...pushed);
+        return next;
+      });
+    }, 50);
+  };
+
+  const push = (line: StreamLine) => {
+    pendingPushRef.current.push(line);
+    scheduleFlush();
+  };
+  /** Upsert: replace if the line exists, otherwise push it. Needed for
+   * cache-hit events that arrive without a preceding `searching` event. */
+  const upsert = (id: string, line: StreamLine) => {
+    pendingUpsertRef.current.set(id, line);
+    scheduleFlush();
+  };
 
   useEffect(() => {
     bottomRef.current?.scrollIntoView({ behavior: 'smooth' });
@@ -374,14 +424,30 @@ function ResearchPhase({
         if (event.type === 'start') {
           setTotal(event.total);
           push({ id: 'start', icon: 'check', text: `Identifying ${event.total} distinct parts…` });
+        } else if (event.type === 'cache_pass') {
+          push({
+            id: 'cache_pass',
+            icon: 'check',
+            text: `${event.cached_count} cached, ${event.remaining} new`,
+          });
+        } else if (event.type === 'external_lookup_start') {
+          push({
+            id: 'external_lookup',
+            icon: 'spin',
+            text: `Looking up ${event.count} remaining (parallel ×${event.concurrency})…`,
+          });
         } else if (event.type === 'searching') {
           push({ id: event.mpn, icon: 'spin', text: 'Looking up', mpn: event.mpn });
         } else if (event.type === 'found') {
-          replace(event.mpn, {
+          // upsert covers both: existing 'searching' line (external lookup) and
+          // brand-new line (cache hit, no preceding 'searching' event).
+          upsert(event.mpn, {
+            id: event.mpn,
             icon: 'check',
             text: event.category || 'identified',
             meta: event.category ?? undefined,
             source: event.source,
+            mpn: event.mpn,
           });
           identifiedRef.current.push({
             mpn: event.mpn,
@@ -394,10 +460,12 @@ function ResearchPhase({
             source: event.source,
           });
         } else if (event.type === 'web_found') {
-          replace(event.mpn, {
+          upsert(event.mpn, {
+            id: event.mpn,
             icon: 'web',
             text: `${event.candidates.length} web candidate${event.candidates.length !== 1 ? 's' : ''} — confirm`,
             source: event.source,
+            mpn: event.mpn,
           });
           needsActionRef.current.push({
             mpn: event.mpn,
@@ -406,7 +474,7 @@ function ResearchPhase({
             webCandidates: event.candidates,
           });
         } else if (event.type === 'not_found') {
-          replace(event.mpn, { icon: 'miss', text: 'not found — add manually' });
+          upsert(event.mpn, { id: event.mpn, icon: 'miss', text: 'not found — add manually', mpn: event.mpn });
           needsActionRef.current.push({ mpn: event.mpn, status: 'not_found' });
         } else if (event.type === 'complete') {
           push({
@@ -420,7 +488,26 @@ function ResearchPhase({
             setError('No parts were identified. Check the BOM column mapping and upload a corrected file.');
             return;
           }
+          // Flush any pending buffered updates before transitioning so the
+          // user sees the final state, then call onComplete with the
+          // in-memory accumulators. The stream is authoritative — we already
+          // have every part's data from the `found` / `web_found` / `not_found`
+          // events. Only fall back to refetching the DB if the counts
+          // disagree, which means we silently dropped events.
+          if (flushTimerRef.current != null) {
+            window.clearTimeout(flushTimerRef.current);
+            flushTimerRef.current = null;
+          }
+          const inMemoryCount =
+            identifiedRef.current.length + needsActionRef.current.length;
+          const expectedCount = event.identified + (event.review_blockers ?? 0);
           setTimeout(() => {
+            if (inMemoryCount >= expectedCount) {
+              onComplete(identifiedRef.current, needsActionRef.current);
+              return;
+            }
+            // Recovery path: counts don't match (some events were dropped).
+            // Refetch from the DB as a safety net.
             void loadSavedReviewState(sessionId)
               .then(saved => {
                 if (saved.hasSavedIdentification) {
@@ -430,7 +517,7 @@ function ResearchPhase({
                 onComplete(identifiedRef.current, needsActionRef.current);
               })
               .catch(() => onComplete(identifiedRef.current, needsActionRef.current));
-          }, 600);
+          }, 200);
         } else if (event.type === 'error') {
           window.clearInterval(staleTimer);
           setError(event.message);
@@ -441,7 +528,13 @@ function ResearchPhase({
       window.clearInterval(staleTimer);
       setError(String(e));
     });
-    return () => window.clearInterval(staleTimer);
+    return () => {
+      window.clearInterval(staleTimer);
+      if (flushTimerRef.current != null) {
+        window.clearTimeout(flushTimerRef.current);
+        flushTimerRef.current = null;
+      }
+    };
   // The stream is intentionally one-shot per mounted review session.
   // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);

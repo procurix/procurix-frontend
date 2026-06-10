@@ -3,7 +3,7 @@ import { CheckCircle, Zap, Loader2, Info } from 'lucide-react';
 import { motion, AnimatePresence } from 'motion/react';
 import { toast } from 'sonner';
 import { useSession } from '@/app/context/SessionContext';
-import { analyzeSystem, getCurrentStage, getSystemAnalysis, selectSystemType, type SystemSuggestion } from '@/app/services/api';
+import { analyzeSystem, analyzeSystemStream, getCurrentStage, getSystemAnalysis, selectSystemType, type SystemSuggestion } from '@/app/services/api';
 import { usePipelineStage } from '@/app/shared/usePipelineStage';
 import { useAgent } from '@/app/shared/useAgent';
 
@@ -131,6 +131,46 @@ export function AnalysisView({ onSystemTypeSelected }: AnalysisViewProps) {
     setLoading(true);
     pushSystem('Analyzing system type...');
 
+    // Try the streaming endpoint first — suggestions appear as Gemini produces
+    // them, so the user sees the first one in ~1-2s instead of waiting for
+    // the full ~30s response. Falls back to the polling path if streaming
+    // is unavailable or errors out.
+    const streamed: SystemSuggestion[] = [];
+    let streamSucceeded = false;
+    try {
+      await analyzeSystemStream(sessionId, additionalContext, (event) => {
+        if (event.type === 'suggestion') {
+          streamed[event.index] = event.suggestion;
+          // Update the visible list incrementally so the user sees it grow.
+          setSuggestions([...streamed].filter(Boolean));
+          if (event.index === 0) {
+            pushOutput(`${event.suggestion.systemType} — first option in.`);
+          }
+        } else if (event.type === 'cache_hit') {
+          pushSystem(`Loaded ${event.count} cached suggestion${event.count === 1 ? '' : 's'} for this BOM.`);
+        } else if (event.type === 'complete') {
+          streamSucceeded = true;
+          setSuggestions(event.suggestions);
+          if (event.suggestions.length > 1) {
+            pushOutput(`${event.suggestions.length} options identified — review on the right or type to refine.`);
+          }
+          triggerRefresh();
+        } else if (event.type === 'error') {
+          throw new Error(event.message);
+        }
+      });
+    } catch (err) {
+      // Fall through to polling fallback below
+      console.warn('[analyze] stream failed, falling back to polling', err);
+    }
+
+    if (streamSucceeded) {
+      setLoading(false);
+      inputRef.current?.focus();
+      return;
+    }
+
+    // Fallback: legacy polling path
     const onReady = (res: { suggestions?: SystemSuggestion[] }) => {
       if (res.suggestions?.length) {
         setSuggestions(res.suggestions);

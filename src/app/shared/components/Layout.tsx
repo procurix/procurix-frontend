@@ -15,12 +15,13 @@ interface LayoutProps {
   children: React.ReactNode;
   showBackButton?: boolean;
   showStageIndicator?: boolean;
+  fixedLayout?: boolean;
 }
 
 // Pages that have their own embedded chat — drawer and button hidden there
 const PAGES_WITH_OWN_CHAT = new Set(['/system-identification', '/chat']);
 
-export function Layout({ children, showBackButton = true, showStageIndicator = false }: LayoutProps) {
+export function Layout({ children, showBackButton = true, showStageIndicator = false, fixedLayout = false }: LayoutProps) {
   const location = useLocation();
   const navigate = useNavigate();
   const [commandPaletteOpen, setCommandPaletteOpen] = useState(false);
@@ -39,6 +40,7 @@ export function Layout({ children, showBackButton = true, showStageIndicator = f
   const activeMaxReachedStage = isSyncingUrlSession ? null : maxReachedStage;
 
   const hasOwnChat = PAGES_WITH_OWN_CHAT.has(location.pathname);
+  const usesFixedWorkspace = fixedLayout;
 
   const getCurrentStage = (): SessionStage | null => {
     return ROUTE_TO_STAGE[location.pathname] || null;
@@ -195,7 +197,7 @@ export function Layout({ children, showBackButton = true, showStageIndicator = f
         )}
       </header>
 
-      <main className="flex-1 overflow-auto">
+      <main className={usesFixedWorkspace ? 'min-h-0 flex-1 overflow-hidden' : 'flex-1 overflow-auto'}>
         {children}
       </main>
 

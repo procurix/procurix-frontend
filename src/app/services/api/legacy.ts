@@ -2408,8 +2408,58 @@ export interface ReviewResponse {
     };
 }
 
+export type DesignLens = 'architecture' | 'requirements' | 'subsystems' | 'interfaces' | 'review';
+
+export type SelectedEntity =
+    | { type: 'part'; id: string }
+    | { type: 'connection'; id: string }
+    | { type: 'subsystem'; id: string }
+    | { type: 'interface'; id: string }
+    | { type: 'requirement'; id: string }
+    | { type: 'subsystem_requirement'; id: string };
+
+export interface DesignDefinitionReviewItem {
+    id: string | null;
+    type: string;
+    label: string;
+    severity: 'blocking' | 'warning';
+    source: 'architecture' | 'subsystems' | 'final_review';
+    payload: Record<string, unknown>;
+    focus?: {
+        entity_type: SelectedEntity['type'];
+        entity_id: string;
+        lens: DesignLens;
+    };
+}
+
+export interface DesignDefinitionResponse {
+    design_id: string;
+    fsm_state: string;
+    is_complete: boolean;
+    can_complete: boolean;
+    review: ReviewResponse;
+    parts: ReviewSubsystem['parts'];
+    connections: Connection[];
+    nets: ArchitectureNet[];
+    subsystems: ReviewSubsystem[];
+    interfaces: SubsystemInterfaceContract[];
+    ports: SubsystemPort[];
+    design_requirements: NonNullable<ReviewResponse['design_requirements']['items']>;
+    subsystem_requirements: ReviewResponse['subsystem_requirements'];
+    readiness: {
+        architecture: ArchitectureCompletionReadiness;
+        subsystems: SubsystemReadinessResponse;
+        final_review: NonNullable<ReviewResponse['completion_readiness']>;
+    };
+    review_items: DesignDefinitionReviewItem[];
+}
+
 export async function getReview(designId: string): Promise<ReviewResponse> {
     return apiJSON(`${BASE_URL}/designs/${designId}/review`);
+}
+
+export async function getDesignDefinition(designId: string): Promise<DesignDefinitionResponse> {
+    return apiJSON(`${BASE_URL}/designs/${designId}/definition`);
 }
 
 export async function markDesignComplete(designId: string): Promise<{

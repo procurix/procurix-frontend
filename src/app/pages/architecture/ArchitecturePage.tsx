@@ -99,7 +99,11 @@ function toArchitecturePinout(pins: PartPin[] | null | undefined): Record<string
   return pinout;
 }
 
-export function ArchitecturePage() {
+interface ArchitecturePageProps {
+  readOnly?: boolean;
+}
+
+export function ArchitecturePage({ readOnly = false }: ArchitecturePageProps = {}) {
   const { sessionId: contextSessionId, setSessionId, setCurrentStage, refreshTrigger } = useSession();
   const { sessionId: querySessionId, updateParams } = useQueryParams();
   const { activeSessionId, navigateToStage } = useWorkflowNavigation();
@@ -159,29 +163,37 @@ export function ArchitecturePage() {
 
           if (!response.connections || response.connections.length === 0) {
             if (!isCurrent) return;
-            try {
-              response = await analyzeConnections(activeSessionId);
-              if (isCurrent && response.workflow_id) setWorkflowId(response.workflow_id);
-            } catch (postError: unknown) {
-              // 409 = another concurrent call is already generating — re-fetch
-              if (isHttpConflict(postError)) {
-                response = await getConnections(activeSessionId, activeSessionId);
-              } else {
-                throw postError;
+            if (readOnly) {
+              response = { ...response, connections: [] };
+            } else {
+              try {
+                response = await analyzeConnections(activeSessionId);
+                if (isCurrent && response.workflow_id) setWorkflowId(response.workflow_id);
+              } catch (postError: unknown) {
+                // 409 = another concurrent call is already generating — re-fetch
+                if (isHttpConflict(postError)) {
+                  response = await getConnections(activeSessionId, activeSessionId);
+                } else {
+                  throw postError;
+                }
               }
             }
           }
         } catch (getError: unknown) {
           if (isHttpNotFound(getError)) {
             if (!isCurrent) return;
-            try {
-              response = await analyzeConnections(activeSessionId);
-              if (isCurrent && response.workflow_id) setWorkflowId(response.workflow_id);
-            } catch (postError: unknown) {
-              if (isHttpConflict(postError)) {
-                response = await getConnections(activeSessionId, activeSessionId);
-              } else {
-                throw postError;
+            if (readOnly) {
+              response = { connections: [] } as ConnectionsResponse;
+            } else {
+              try {
+                response = await analyzeConnections(activeSessionId);
+                if (isCurrent && response.workflow_id) setWorkflowId(response.workflow_id);
+              } catch (postError: unknown) {
+                if (isHttpConflict(postError)) {
+                  response = await getConnections(activeSessionId, activeSessionId);
+                } else {
+                  throw postError;
+                }
               }
             }
           } else {
@@ -198,7 +210,7 @@ export function ArchitecturePage() {
             && hasNoPins
             && (!conn.pin_resolution_source || wasSavedBeforePinResolution);
         });
-        if (needsPinResolution) {
+        if (needsPinResolution && !readOnly) {
           try {
             response = await resolveConnectionPins(activeSessionId);
           } catch {
@@ -343,7 +355,7 @@ export function ArchitecturePage() {
 
     fetchConnections();
     return () => { isCurrent = false; };
-  }, [activeSessionId, querySessionId, updateParams, refreshTrigger]);
+  }, [activeSessionId, querySessionId, updateParams, refreshTrigger, readOnly]);
 
   const refreshNets = useCallback(async (): Promise<ArchitectureNet[]> => {
     if (!activeSessionId) return [];
@@ -468,7 +480,7 @@ export function ArchitecturePage() {
           subsystemColor: undefined,
           subsystemWarning: undefined,
         }))}
-        onArchitectureComplete={handleArchitectureComplete}
+        onArchitectureComplete={readOnly ? () => undefined : handleArchitectureComplete}
         initialConnections={connections}
         initialUnresolvedConnections={unresolvedConnections}
         initialNets={nets}

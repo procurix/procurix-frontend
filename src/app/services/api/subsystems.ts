@@ -12,6 +12,7 @@ export {
   generateSubsystemRequirements,
   generateSubsystems,
   getAllSubsystemRequirements,
+  getDesignDefinition,
   getReview,
   getSubsystemDetails,
   getSubsystemInterface,
@@ -41,6 +42,9 @@ export {
 
 export type {
   GenerateSubsystemRequirementsResponse,
+  DesignDefinitionResponse,
+  DesignDefinitionReviewItem,
+  DesignLens,
   ReviewResponse,
   ReviewSubsystem,
   SubsystemCreatePayload,
@@ -62,4 +66,5 @@ export type {
   SubsystemSplitPayload,
   SubsystemsResponse,
   SubsystemSummary,
+  SelectedEntity,
 } from './legacy';

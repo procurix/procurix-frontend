@@ -717,8 +717,8 @@ export function SubsystemsView({
   };
 
   return (
-    <div className="min-h-full bg-slate-50 px-6 py-6">
-      <div className="mx-auto flex max-w-7xl flex-col gap-5">
+    <div className="min-h-full bg-slate-50 px-4 py-4">
+      <div className="mx-auto flex w-full max-w-7xl flex-col gap-4">
         <header className="flex flex-wrap items-start justify-between gap-3">
           <div>
             <h1 className="text-2xl font-semibold text-slate-950">Subsystem Architecture</h1>
@@ -876,24 +876,7 @@ export function SubsystemsView({
           )}
         </section>
 
-        {suggestionsAvailable === true && (
-          <ReviewProposalsPanel
-            proposals={reviewProposals}
-            filter={reviewProposalFilter}
-            loading={reviewProposalsLoading}
-            error={reviewProposalsError}
-            isSuggesting={isSuggestingReview}
-            busyAction={busyAction}
-            subsystems={subsystems}
-            coverage={coverage}
-            components={components}
-            onFilterChange={onReviewProposalFilterChange}
-            onSuggest={onSuggestReviewProposals}
-            onApply={applyReviewProposal}
-            onDismiss={dismissReviewProposal}
-          />
-        )}
-
+        <div className="space-y-4">
         {activeSubsystems.length === 0 ? (
           <section className="rounded-lg border border-dashed border-slate-300 bg-white p-10 text-center">
             <Layers className="mx-auto h-10 w-10 text-slate-400" />
@@ -1637,6 +1620,24 @@ export function SubsystemsView({
             </main>
           </div>
         )}
+        {suggestionsAvailable === true && (
+          <ReviewProposalsPanel
+            proposals={reviewProposals}
+            filter={reviewProposalFilter}
+            loading={reviewProposalsLoading}
+            error={reviewProposalsError}
+            isSuggesting={isSuggestingReview}
+            busyAction={busyAction}
+            subsystems={subsystems}
+            coverage={coverage}
+            components={components}
+            onFilterChange={onReviewProposalFilterChange}
+            onSuggest={onSuggestReviewProposals}
+            onApply={applyReviewProposal}
+            onDismiss={dismissReviewProposal}
+          />
+        )}
+        </div>
       </div>
       {confirmation && (
         <ConfirmActionDialog

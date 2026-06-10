@@ -45,6 +45,10 @@ export function useRequirementActions({
   setReviewFilter,
   onRequirementsComplete,
 }: UseRequirementActionsArgs) {
+  // setReviewFilter is currently unused after the force-confirm change.
+  // Keep it in the contract — page callers still pass it — but explicitly mark
+  // unused so the TS lint stays quiet.
+  void setReviewFilter;
   const { withImpactPreview } = useImpactPreview();
   const [savingRequirementId, setSavingRequirementId] = useState<string | null>(null);
   const [traceMpn, setTraceMpn] = useState<string | null>(null);
@@ -261,13 +265,20 @@ export function useRequirementActions({
       toast.error('No session found');
       return;
     }
-    if (reviewBlockers.length > 0) {
-      toast.error(`${reviewBlockers.length} must-have requirement${reviewBlockers.length === 1 ? '' : 's'} still need review quality checks`);
-      setReviewFilter('gaps');
-      return;
-    }
+    // Force-confirm: bypass the must-have quality gate. The AI-generated
+    // fields are often incomplete (missing verification_method, acceptance
+    // criteria, or traceability) but the user has already reviewed them and
+    // wants to proceed. The gate stays available on the backend by default;
+    // we just don't use it from this button.
     try {
-      await confirmAllRequirements(sessionId);
+      await confirmAllRequirements(sessionId, { force: true });
+      if (reviewBlockers.length > 0) {
+        toast.warning(
+          `Confirmed all requirements (${reviewBlockers.length} still flagged for review — fix later if needed)`,
+        );
+      } else {
+        toast.success('All requirements confirmed');
+      }
       onRequirementsComplete();
     } catch (error) {
       toast.error(error instanceof Error ? error.message : 'Failed to confirm requirements');

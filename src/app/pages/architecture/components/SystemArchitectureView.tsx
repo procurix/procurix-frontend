@@ -22,7 +22,7 @@ import {
 import '@xyflow/react/dist/style.css';
 import type { Component } from '@/app/types';
 import { motion } from 'motion/react';
-import { CheckCircle, ChevronDown, Hand, Maximize2, MousePointer2, Plus, Trash2, ZoomIn as ZoomInIcon, ZoomOut as ZoomOutIcon } from 'lucide-react';
+import { CheckCircle, ChevronDown, ChevronUp, Hand, Maximize2, MousePointer2, Plus, Trash2, X, ZoomIn as ZoomInIcon, ZoomOut as ZoomOutIcon } from 'lucide-react';
 import { ComponentNode } from './ComponentNode';
 import { NetNode } from './NetNode';
 import { ArchitectureBuilderSidebar } from './ArchitectureBuilderSidebar';
@@ -415,6 +415,16 @@ function SystemArchitectureViewInner({ components, onArchitectureComplete, backe
   const [unresolvedConnectionCandidates, setUnresolvedConnectionCandidates] = useState<ArchitectureUnresolvedConnectionCandidate[]>(() => initialUnresolvedConnections || []);
   const [unresolvedPinDrafts, setUnresolvedPinDrafts] = useState<Record<string, { sourcePin: string; targetPin: string }>>({});
   const [pendingUnresolvedAction, setPendingUnresolvedAction] = useState<{ id: string; action: 'create' | 'dismiss' } | null>(null);
+  // Collapse state for the "Architecture review queue" panel. The queue can
+  // get long (10+ items) and dominates the corner of the page; collapsed by
+  // default so users see the header + count at a glance, expand on demand.
+  const [reviewQueueCollapsed, setReviewQueueCollapsed] = useState(true);
+  // Tracks the bulk "Confirm all suggested nets" action so we can show
+  // progress and disable the button while it runs.
+  const [bulkConfirmInFlight, setBulkConfirmInFlight] = useState(false);
+  // Collapsible "Create net" panel. Default closed — most users review nets
+  // rather than create new ones; a permanent input below the queue is noisy.
+  const [createNetOpen, setCreateNetOpen] = useState(false);
   const [isBuilderMode, setIsBuilderMode] = useState(false);
   const [selectedEdgeId, setSelectedEdgeId] = useState<string | null>(null);
   const [selectedNetId, setSelectedNetId] = useState<string | null>(null);
@@ -1660,6 +1670,7 @@ function SystemArchitectureViewInner({ components, onArchitectureComplete, backe
         setNewNetDraft(EMPTY_NEW_NET_DRAFT);
         setSelectedEdgeId(null);
         setSelectedNetId(persistedNetNodeId(net.id));
+        setCreateNetOpen(false);
       })
       .catch((error) => console.error('Failed to create net', error));
   }, [applyNetResponse, designId, newNetDraft, refreshAuthoritativeNets, screenToFlowPosition]);
@@ -1924,6 +1935,39 @@ function SystemArchitectureViewInner({ components, onArchitectureComplete, backe
     if (!persistedNetId) return;
     confirmNetById(persistedNetId);
   }, [confirmNetById, selectedNetBlock]);
+
+  // Confirm every blocker of type 'suggested_net' in the review queue. Runs
+  // each confirm sequentially against the existing per-net endpoint so the
+  // optimistic UI updates stay correct; failures are logged but don't stop
+  // the loop. After the loop, refresh readiness once instead of once-per-net.
+  const confirmAllSuggestedNets = useCallback(async () => {
+    if (!designId || bulkConfirmInFlight) return;
+    const suggestedNetIds = completionBlockers
+      .filter((b) => b.type === 'suggested_net')
+      .map((b) => (b.id ? String(b.id) : ''))
+      .filter((id) => id.length > 0);
+    if (suggestedNetIds.length === 0) return;
+    setBulkConfirmInFlight(true);
+    let succeeded = 0;
+    let failed = 0;
+    for (const netId of suggestedNetIds) {
+      try {
+        applyNetPatch(netId, { status: 'confirmed', user_corrected: true });
+        const response = await confirmNet(designId, netId);
+        applyNetResponseAndRefresh(response);
+        succeeded += 1;
+      } catch (error) {
+        console.error(`Failed to confirm net ${netId}`, error);
+        failed += 1;
+      }
+    }
+    setNetReviewWarning(null);
+    onRefreshCompletionReadiness?.();
+    setBulkConfirmInFlight(false);
+    if (failed > 0) {
+      console.warn(`Confirmed ${succeeded}/${suggestedNetIds.length} suggested nets; ${failed} failed`);
+    }
+  }, [applyNetPatch, applyNetResponseAndRefresh, bulkConfirmInFlight, completionBlockers, designId, onRefreshCompletionReadiness]);
 
   const handleRejectSelectedNet = useCallback(() => {
     const persistedNetId = getPersistedNetId(selectedNetBlock);
@@ -2543,10 +2587,52 @@ function SystemArchitectureViewInner({ components, onArchitectureComplete, backe
             </Button>
           </div>
           {completionBlockers.length > 0 && (
-            <div className="max-h-[420px] w-[520px] overflow-y-auto rounded-lg border border-amber-200 bg-white px-3 py-3 text-xs text-slate-700 shadow-sm">
-              <div className="font-bold text-amber-900">Architecture review queue</div>
-              <div className="mt-1 text-amber-700">{completionWarning}</div>
+            <div
+              className={`w-[520px] overflow-hidden rounded-lg border border-amber-200 bg-white px-3 py-3 text-xs text-slate-700 shadow-sm ${reviewQueueCollapsed ? '' : 'max-h-[420px] overflow-y-auto'}`}
+            >
+              <button
+                type="button"
+                onClick={() => setReviewQueueCollapsed((v) => !v)}
+                className="flex w-full items-center justify-between gap-2 text-left"
+                aria-expanded={!reviewQueueCollapsed}
+              >
+                <div>
+                  <div className="font-bold text-amber-900">
+                    Architecture review queue
+                    <span className="ml-2 rounded bg-amber-100 px-1.5 py-0.5 text-[10px] font-semibold text-amber-800">
+                      {completionBlockers.length}
+                    </span>
+                  </div>
+                  <div className="mt-1 text-amber-700">{completionWarning}</div>
+                </div>
+                {reviewQueueCollapsed ? (
+                  <ChevronDown className="h-4 w-4 shrink-0 text-amber-700" />
+                ) : (
+                  <ChevronUp className="h-4 w-4 shrink-0 text-amber-700" />
+                )}
+              </button>
+              {!reviewQueueCollapsed && (
               <div className="mt-3 space-y-2">
+                {(() => {
+                  const suggestedNetCount = completionBlockers.filter((b) => b.type === 'suggested_net').length;
+                  if (suggestedNetCount < 2) return null;
+                  return (
+                    <div className="flex items-center justify-between rounded-md border border-amber-200 bg-amber-50 px-2.5 py-2">
+                      <span className="text-[11px] font-semibold text-amber-900">
+                        {suggestedNetCount} suggested net{suggestedNetCount === 1 ? '' : 's'} pending
+                      </span>
+                      <Button
+                        type="button"
+                        size="sm"
+                        className="h-7 px-2 text-[11px]"
+                        disabled={bulkConfirmInFlight}
+                        onClick={() => void confirmAllSuggestedNets()}
+                      >
+                        {bulkConfirmInFlight ? 'Confirming…' : 'Confirm all suggested nets'}
+                      </Button>
+                    </div>
+                  );
+                })()}
                 {completionBlockers.map((blocker, index) => {
                   const isSuggestedNet = blocker.type === 'suggested_net';
                   const isPinlessConnection = blocker.type === 'pinless_connection';
@@ -2614,6 +2700,7 @@ function SystemArchitectureViewInner({ components, onArchitectureComplete, backe
                   );
                 })}
               </div>
+              )}
             </div>
           )}
           {unresolvedConnectionCandidates.length > 0 && (
@@ -2706,33 +2793,53 @@ function SystemArchitectureViewInner({ components, onArchitectureComplete, backe
               {netReviewWarning}
             </div>
           )}
-          <div className="rounded-lg border border-gray-200 bg-white p-3 shadow-lg">
-            <div className="mb-2 text-xs font-bold uppercase tracking-wide text-gray-500">Create net</div>
-            <div className="grid grid-cols-[160px_120px_auto] gap-2">
-              <Input
-                value={newNetDraft.name}
-                onChange={(event) => setNewNetDraft((draft) => ({ ...draft, name: event.target.value }))}
-                placeholder="VBAT, 5V, CAN"
-                className="h-8 text-xs"
-              />
-              <select
-                value={newNetDraft.type}
-                onChange={(event) => setNewNetDraft((draft) => ({ ...draft, type: event.target.value }))}
-                className="h-8 rounded-md border border-gray-300 bg-white px-2 text-xs"
-              >
-                {connectionTypes.map((type) => (
-                  <option key={type} value={type}>{type}</option>
-                ))}
-              </select>
-              <Button
-                type="button"
-                size="sm"
-                onClick={handleCreateNet}
-                disabled={!designId || !newNetDraft.name.trim()}
-              >
-                Create
-              </Button>
-            </div>
+          <div className="rounded-lg border border-gray-200 bg-white shadow-lg">
+            <button
+              type="button"
+              onClick={() => setCreateNetOpen((v) => !v)}
+              className="flex w-full items-center justify-between gap-2 px-3 py-2 text-left"
+              aria-expanded={createNetOpen}
+              title={createNetOpen ? 'Close create net' : 'Create a new net'}
+            >
+              <span className="text-xs font-bold uppercase tracking-wide text-gray-500">
+                Create net
+              </span>
+              {createNetOpen ? (
+                <X className="h-4 w-4 text-gray-500" />
+              ) : (
+                <Plus className="h-4 w-4 text-gray-500" />
+              )}
+            </button>
+            {createNetOpen && (
+              <div className="border-t border-gray-100 px-3 pb-3 pt-2">
+                <div className="grid grid-cols-[160px_120px_auto] gap-2">
+                  <Input
+                    value={newNetDraft.name}
+                    onChange={(event) => setNewNetDraft((draft) => ({ ...draft, name: event.target.value }))}
+                    placeholder="VBAT, 5V, CAN"
+                    className="h-8 text-xs"
+                    autoFocus
+                  />
+                  <select
+                    value={newNetDraft.type}
+                    onChange={(event) => setNewNetDraft((draft) => ({ ...draft, type: event.target.value }))}
+                    className="h-8 rounded-md border border-gray-300 bg-white px-2 text-xs"
+                  >
+                    {connectionTypes.map((type) => (
+                      <option key={type} value={type}>{type}</option>
+                    ))}
+                  </select>
+                  <Button
+                    type="button"
+                    size="sm"
+                    onClick={handleCreateNet}
+                    disabled={!designId || !newNetDraft.name.trim()}
+                  >
+                    Create
+                  </Button>
+                </div>
+              </div>
+            )}
           </div>
           <div className="flex gap-2 flex-wrap">
             {hiddenNetKeys.size > 0 && (

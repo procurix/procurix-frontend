@@ -1927,8 +1927,9 @@ export async function createRequirement(designId: string, data: Partial<Requirem
     };
 }
 
-export async function confirmAllRequirements(designId: string) {
-    return apiJSON(`${BASE_URL}/designs/${designId}/requirements/confirm-all`, {
+export async function confirmAllRequirements(designId: string, options?: { force?: boolean }) {
+    const qs = options?.force ? '?force=true' : '';
+    return apiJSON(`${BASE_URL}/designs/${designId}/requirements/confirm-all${qs}`, {
         method: 'POST',
     });
 }

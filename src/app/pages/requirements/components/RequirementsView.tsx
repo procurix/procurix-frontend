@@ -239,9 +239,13 @@ export function RequirementsView({ designId, onRequirementsComplete, onOpenPartR
             </button>
             <button
               onClick={handleContinue}
-              disabled={requirements.length === 0 || reviewBlockers.length > 0}
+              disabled={requirements.length === 0}
               className="inline-flex items-center gap-2 rounded-md bg-blue-600 px-3 py-2 text-sm font-medium text-white hover:bg-blue-700 disabled:cursor-not-allowed disabled:bg-gray-300"
-              title={reviewBlockers.length ? 'Resolve must-have requirement blockers before continuing' : undefined}
+              title={
+                reviewBlockers.length
+                  ? `${reviewBlockers.length} requirement${reviewBlockers.length === 1 ? '' : 's'} still flagged — will be confirmed anyway`
+                  : undefined
+              }
             >
               <CheckCircle className="h-4 w-4" />
               Approve All & Continue

@@ -1,13 +1,6 @@
 [build]
-builder = "NIXPACKS"
-buildCommand = "npm ci && npm run build"
-
-[build.nixpacksConfig]
-providers = ["node"]
-
-[build.nixpacksConfig.variables]
-NIXPACKS_NODE_VERSION = "20"
+builder = "DOCKERFILE"
+dockerfilePath = "Dockerfile"
 
 [deploy]
-startCommand = "npx serve -s dist -l $PORT"
 restartPolicyType = "ON_FAILURE"

@@ -1,6 +1,6 @@
 [build]
 builder = "NIXPACKS"
-buildCommand = "rm -rf node_modules && npm ci && npm run build"
+buildCommand = "npm ci && npm run build"
 
 [build.nixpacksConfig]
 providers = ["node"]

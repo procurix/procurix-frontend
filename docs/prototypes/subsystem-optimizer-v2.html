@@ -1,0 +1,3355 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1" />
+  <title>Subsystem Optimizer V2 Prototype</title>
+  <style>
+    :root {
+      --ink: #0f172a;
+      --muted: #64748b;
+      --line: #d9e2ef;
+      --soft: #f6f8fb;
+      --panel: #ffffff;
+      --blue: #2563eb;
+      --violet: #7c3aed;
+      --green: #047857;
+      --amber: #b45309;
+      --red: #be123c;
+      --shadow: 0 10px 28px rgba(15, 23, 42, 0.08);
+    }
+
+    * {
+      box-sizing: border-box;
+    }
+
+    body {
+      margin: 0;
+      min-height: 100vh;
+      color: var(--ink);
+      background: #eef3f8;
+      font-family: Inter, ui-sans-serif, system-ui, -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif;
+    }
+
+    button,
+    input,
+    select,
+    textarea {
+      font: inherit;
+    }
+
+    button {
+      cursor: pointer;
+    }
+
+    .app {
+      display: grid;
+      grid-template-rows: auto 1fr;
+      height: 100vh;
+      min-height: 0;
+    }
+
+    header {
+      display: flex;
+      align-items: center;
+      justify-content: space-between;
+      gap: 18px;
+      padding: 16px 22px;
+      border-bottom: 1px solid var(--line);
+      background: rgba(255, 255, 255, 0.9);
+      backdrop-filter: blur(10px);
+    }
+
+    .title {
+      display: flex;
+      align-items: center;
+      gap: 12px;
+      min-width: 0;
+    }
+
+    .logo {
+      display: grid;
+      place-items: center;
+      width: 36px;
+      height: 36px;
+      border-radius: 10px;
+      background: #e8edff;
+      color: var(--blue);
+      font-weight: 900;
+    }
+
+    h1,
+    h2,
+    h3,
+    p {
+      margin: 0;
+    }
+
+    h1 {
+      font-size: 18px;
+      line-height: 1.1;
+    }
+
+    .subtitle {
+      margin-top: 3px;
+      color: var(--muted);
+      font-size: 12px;
+    }
+
+    .toolbar {
+      display: flex;
+      align-items: center;
+      gap: 8px;
+      flex-wrap: wrap;
+      justify-content: flex-end;
+    }
+
+    .field {
+      display: grid;
+      gap: 4px;
+    }
+
+    .field label {
+      color: var(--muted);
+      font-size: 10px;
+      font-weight: 800;
+      letter-spacing: 0.08em;
+      text-transform: uppercase;
+    }
+
+    .field input,
+    .field textarea {
+      width: 210px;
+      border: 1px solid var(--line);
+      border-radius: 8px;
+      padding: 8px 10px;
+      background: white;
+      color: var(--ink);
+      outline: none;
+    }
+
+    .field textarea {
+      width: 100%;
+      resize: vertical;
+      min-height: 180px;
+      line-height: 1.45;
+    }
+
+    .field select {
+      width: 260px;
+      min-height: 36px;
+      border: 1px solid var(--line);
+      border-radius: 8px;
+      padding: 8px 10px;
+      background: white;
+      color: var(--ink);
+      outline: none;
+    }
+
+    .btn {
+      display: inline-flex;
+      align-items: center;
+      justify-content: center;
+      gap: 7px;
+      min-height: 36px;
+      border: 1px solid var(--line);
+      border-radius: 9px;
+      padding: 0 12px;
+      background: white;
+      color: var(--ink);
+      font-weight: 750;
+      box-shadow: 0 1px 1px rgba(15, 23, 42, 0.04);
+    }
+
+    .btn.primary {
+      border-color: #1d4ed8;
+      background: var(--blue);
+      color: white;
+    }
+
+    .btn.ghost {
+      background: transparent;
+      box-shadow: none;
+    }
+
+    .btn.danger {
+      border-color: #fecdd3;
+      background: #fff1f2;
+      color: var(--red);
+    }
+
+    .mode-toggle {
+      display: inline-flex;
+      gap: 4px;
+      padding: 4px;
+      border: 1px solid var(--line);
+      border-radius: 10px;
+      background: #f8fafc;
+    }
+
+    .mode-toggle button.active {
+      border-color: #020617;
+      background: #020617;
+      color: white;
+    }
+
+    .hidden {
+      display: none !important;
+    }
+
+    .workspace {
+      display: grid;
+      grid-template-columns: 286px minmax(560px, 1fr) 390px;
+      gap: 14px;
+      min-height: 0;
+      padding: 14px;
+      overflow: hidden;
+    }
+
+    .manifest-workspace {
+      grid-template-columns: minmax(360px, 460px) minmax(640px, 1fr);
+    }
+
+    .column {
+      min-height: 0;
+      overflow: auto;
+      overscroll-behavior: contain;
+    }
+
+    .panel {
+      border: 1px solid var(--line);
+      border-radius: 12px;
+      background: var(--panel);
+      box-shadow: var(--shadow);
+    }
+
+    .panel + .panel {
+      margin-top: 12px;
+    }
+
+    .panel-head {
+      display: flex;
+      align-items: center;
+      justify-content: space-between;
+      gap: 10px;
+      padding: 13px 14px;
+      border-bottom: 1px solid var(--line);
+    }
+
+    .panel-title {
+      font-size: 13px;
+      font-weight: 900;
+    }
+
+    .panel-subtitle {
+      margin-top: 3px;
+      color: var(--muted);
+      font-size: 12px;
+      line-height: 1.35;
+    }
+
+    .panel-body {
+      padding: 12px;
+    }
+
+    .segmented {
+      display: flex;
+      gap: 4px;
+      padding: 4px;
+      border: 1px solid var(--line);
+      border-radius: 10px;
+      background: #f8fafc;
+    }
+
+    .segmented button {
+      min-height: 30px;
+      border: 0;
+      border-radius: 7px;
+      padding: 0 10px;
+      background: transparent;
+      color: var(--muted);
+      font-weight: 800;
+      font-size: 12px;
+    }
+
+    .segmented button.active {
+      background: #020617;
+      color: white;
+    }
+
+    .list {
+      display: grid;
+      gap: 8px;
+    }
+
+    .item {
+      width: 100%;
+      border: 1px solid var(--line);
+      border-radius: 10px;
+      padding: 10px;
+      background: white;
+      color: inherit;
+      text-align: left;
+    }
+
+    .item:hover {
+      border-color: #93c5fd;
+    }
+
+    .item.active {
+      border-color: var(--blue);
+      box-shadow: inset 3px 0 0 var(--blue);
+    }
+
+    .item strong {
+      display: block;
+      overflow: hidden;
+      text-overflow: ellipsis;
+      white-space: nowrap;
+      font-size: 13px;
+    }
+
+    .item small {
+      display: block;
+      margin-top: 4px;
+      color: var(--muted);
+      line-height: 1.35;
+    }
+
+    .badge-row {
+      display: flex;
+      align-items: center;
+      flex-wrap: wrap;
+      gap: 6px;
+      margin-top: 8px;
+    }
+
+    .badge {
+      display: inline-flex;
+      align-items: center;
+      min-height: 22px;
+      border: 1px solid #dbeafe;
+      border-radius: 999px;
+      padding: 0 8px;
+      background: #eff6ff;
+      color: #1d4ed8;
+      font-size: 11px;
+      font-weight: 800;
+    }
+
+    .badge.green {
+      border-color: #bbf7d0;
+      background: #f0fdf4;
+      color: var(--green);
+    }
+
+    .badge.amber {
+      border-color: #fde68a;
+      background: #fffbeb;
+      color: var(--amber);
+    }
+
+    .badge.red {
+      border-color: #fecdd3;
+      background: #fff1f2;
+      color: var(--red);
+    }
+
+    .badge.gray {
+      border-color: #e2e8f0;
+      background: #f8fafc;
+      color: #475569;
+    }
+
+    .hero {
+      padding: 16px;
+    }
+
+    .hero-grid {
+      display: grid;
+      grid-template-columns: minmax(0, 1fr) 260px;
+      gap: 12px;
+      align-items: start;
+    }
+
+    .hero h2 {
+      font-size: 20px;
+    }
+
+    .meta-grid {
+      display: grid;
+      grid-template-columns: repeat(2, minmax(0, 1fr));
+      gap: 8px;
+    }
+
+    .metric {
+      border: 1px solid var(--line);
+      border-radius: 10px;
+      padding: 9px;
+      background: #f8fafc;
+    }
+
+    .metric strong {
+      display: block;
+      font-size: 18px;
+    }
+
+    .metric span {
+      color: var(--muted);
+      font-size: 11px;
+      font-weight: 750;
+      text-transform: uppercase;
+    }
+
+    .map {
+      position: relative;
+      height: 390px;
+      overflow: hidden;
+      border-top: 1px solid var(--line);
+      border-bottom: 1px solid var(--line);
+      background:
+        linear-gradient(#e5edf7 1px, transparent 1px),
+        linear-gradient(90deg, #e5edf7 1px, transparent 1px),
+        #fbfdff;
+      background-size: 28px 28px;
+    }
+
+    .map svg {
+      position: absolute;
+      inset: 0;
+      width: 100%;
+      height: 100%;
+      pointer-events: none;
+    }
+
+    .part-node {
+      position: absolute;
+      width: 172px;
+      min-height: 86px;
+      border: 1px solid #cbd5e1;
+      border-radius: 10px;
+      padding: 9px;
+      background: rgba(255, 255, 255, 0.96);
+      box-shadow: 0 10px 22px rgba(15, 23, 42, 0.08);
+    }
+
+    .part-node.focus {
+      border-color: var(--violet);
+      box-shadow: 0 0 0 3px rgba(124, 58, 237, 0.14), 0 12px 28px rgba(15, 23, 42, 0.12);
+    }
+
+    .part-node button {
+      display: block;
+      width: 100%;
+      border: 0;
+      padding: 0;
+      background: transparent;
+      color: inherit;
+      text-align: left;
+    }
+
+    .part-node strong {
+      display: block;
+      overflow: hidden;
+      text-overflow: ellipsis;
+      white-space: nowrap;
+      font-size: 12px;
+    }
+
+    .part-node span {
+      display: block;
+      margin-top: 5px;
+      color: var(--muted);
+      font-size: 11px;
+      line-height: 1.35;
+    }
+
+    .focus-strip {
+      display: grid;
+      grid-template-columns: 1fr auto;
+      gap: 10px;
+      align-items: start;
+      padding: 14px;
+    }
+
+    .mode-grid {
+      display: grid;
+      grid-template-columns: repeat(4, minmax(0, 1fr));
+      gap: 8px;
+      padding: 0 14px 14px;
+    }
+
+    .mode {
+      border: 1px solid var(--line);
+      border-radius: 10px;
+      padding: 10px;
+      background: white;
+      text-align: left;
+    }
+
+    .mode.active {
+      border-color: var(--violet);
+      background: #f5f3ff;
+      box-shadow: inset 0 0 0 1px var(--violet);
+    }
+
+    .mode strong {
+      display: block;
+      font-size: 12px;
+    }
+
+    .mode span {
+      display: block;
+      margin-top: 5px;
+      color: var(--muted);
+      font-size: 11px;
+      line-height: 1.35;
+    }
+
+    .candidate {
+      border: 1px solid var(--line);
+      border-radius: 11px;
+      padding: 12px;
+      background: white;
+    }
+
+    .candidate.active {
+      border-color: var(--blue);
+      box-shadow: inset 3px 0 0 var(--blue);
+    }
+
+    .candidate-head {
+      display: flex;
+      justify-content: space-between;
+      gap: 8px;
+      align-items: start;
+    }
+
+    .candidate h3 {
+      font-size: 14px;
+    }
+
+    .candidate p {
+      margin-top: 7px;
+      color: var(--muted);
+      font-size: 12px;
+      line-height: 1.45;
+    }
+
+    .mini-list {
+      display: grid;
+      gap: 5px;
+      margin-top: 8px;
+    }
+
+    .mini-list span {
+      display: block;
+      border: 1px solid var(--line);
+      border-radius: 8px;
+      padding: 6px 8px;
+      background: #f8fafc;
+      color: var(--muted);
+      font-size: 11px;
+      line-height: 1.35;
+    }
+
+    .score-grid {
+      display: grid;
+      grid-template-columns: repeat(2, minmax(0, 1fr));
+      gap: 8px;
+    }
+
+    .score {
+      border: 1px solid var(--line);
+      border-radius: 10px;
+      padding: 9px;
+      background: #f8fafc;
+    }
+
+    .score span {
+      display: block;
+      color: var(--muted);
+      font-size: 11px;
+      font-weight: 800;
+    }
+
+    .score strong {
+      display: block;
+      margin-top: 4px;
+      font-size: 17px;
+    }
+
+    .signal {
+      display: grid;
+      grid-template-columns: auto 1fr;
+      gap: 8px;
+      border: 1px solid var(--line);
+      border-radius: 10px;
+      padding: 9px;
+      background: #fff;
+    }
+
+    .dot {
+      width: 10px;
+      height: 10px;
+      border-radius: 999px;
+      margin-top: 4px;
+      background: var(--blue);
+    }
+
+    .dot.good {
+      background: var(--green);
+    }
+
+    .dot.warn {
+      background: var(--amber);
+    }
+
+    .dot.bad {
+      background: var(--red);
+    }
+
+    .signal strong {
+      display: block;
+      font-size: 12px;
+    }
+
+    .signal span {
+      display: block;
+      margin-top: 3px;
+      color: var(--muted);
+      font-size: 12px;
+      line-height: 1.4;
+    }
+
+    .table {
+      width: 100%;
+      border-collapse: collapse;
+      font-size: 12px;
+    }
+
+    .table th,
+    .table td {
+      border-bottom: 1px solid var(--line);
+      padding: 8px 4px;
+      text-align: left;
+      vertical-align: top;
+    }
+
+    .table th {
+      color: var(--muted);
+      font-size: 10px;
+      text-transform: uppercase;
+      letter-spacing: 0.06em;
+    }
+
+    .table tr.row-active {
+      background: #eff6ff;
+    }
+
+    .row-editor-grid {
+      display: grid;
+      grid-template-columns: repeat(auto-fit, minmax(150px, 1fr));
+      gap: 10px;
+    }
+
+    .locked-note {
+      border: 1px solid #cbd5e1;
+      background: #f8fafc;
+      color: var(--muted);
+      border-radius: 10px;
+      padding: 10px;
+      font-size: 12px;
+    }
+
+    .json-box {
+      max-height: 180px;
+      overflow: auto;
+      border: 1px solid var(--line);
+      border-radius: 10px;
+      padding: 10px;
+      background: #0f172a;
+      color: #e2e8f0;
+      font-size: 11px;
+      line-height: 1.45;
+      white-space: pre-wrap;
+    }
+
+    .status-line {
+      min-height: 28px;
+      padding: 8px 14px;
+      border-top: 1px solid var(--line);
+      color: var(--muted);
+      font-size: 12px;
+    }
+
+    @media (max-width: 1260px) {
+      .workspace {
+        grid-template-columns: 260px minmax(520px, 1fr);
+      }
+
+      .right {
+        grid-column: 1 / -1;
+        display: grid;
+        grid-template-columns: repeat(2, minmax(0, 1fr));
+        gap: 12px;
+      }
+
+      .right .panel + .panel {
+        margin-top: 0;
+      }
+    }
+  </style>
+</head>
+<body>
+  <div class="app">
+    <header>
+      <div class="title">
+        <div class="logo">OP</div>
+        <div>
+          <h1>Subsystem Optimizer V2</h1>
+          <div class="subtitle">Prototype shell for backend-owned optimizer context, candidates, signals, and impact.</div>
+        </div>
+      </div>
+      <div class="toolbar">
+        <div class="mode-toggle">
+          <button class="btn active" data-app-mode="optimizer">Setup/Run</button>
+          <button class="btn" data-app-mode="metrics">Metrics</button>
+          <button class="btn" data-app-mode="manifests">Manifests</button>
+          <button class="btn" data-app-mode="observations">Observations</button>
+          <button class="btn" data-app-mode="inspector">Inspector</button>
+        </div>
+        <div class="field">
+          <label for="apiBase">API base</label>
+          <input id="apiBase" value="http://localhost:8092/api" />
+        </div>
+        <div class="field">
+          <label for="designSelect">Session / Design</label>
+          <select id="designSelect">
+            <option value="">Load sessions from backend</option>
+          </select>
+        </div>
+        <div class="field">
+          <label for="subsystemSelect">Subsystem</label>
+          <select id="subsystemSelect" disabled>
+            <option value="">Select a design first</option>
+          </select>
+        </div>
+        <button class="btn" id="refreshDesigns">Refresh designs</button>
+        <button class="btn primary" id="loadBackend">Load backend context</button>
+      </div>
+    </header>
+
+    <main class="workspace" id="optimizerWorkspace">
+      <aside class="column left">
+        <section class="panel">
+          <div class="panel-head">
+            <div>
+              <div class="panel-title">Subsystem Scope</div>
+              <div class="panel-subtitle">Optimization is scoped to one subsystem first.</div>
+            </div>
+            <span class="badge gray" id="scopeState">not loaded</span>
+          </div>
+          <div class="panel-body">
+            <div id="subsystemSummary" class="list"></div>
+          </div>
+        </section>
+
+        <section class="panel">
+          <div class="panel-head">
+            <div>
+              <div class="panel-title">Focus Part</div>
+              <div class="panel-subtitle">Pick the part to optimize inside the subsystem.</div>
+            </div>
+          </div>
+          <div class="panel-body">
+            <div id="partList" class="list"></div>
+          </div>
+        </section>
+
+        <section class="panel">
+          <div class="panel-head">
+            <div>
+              <div class="panel-title">Context Quality</div>
+              <div class="panel-subtitle">What the backend knows versus what must be inferred.</div>
+            </div>
+          </div>
+          <div class="panel-body">
+            <div id="qualityList" class="list"></div>
+          </div>
+        </section>
+      </aside>
+
+      <section class="column center">
+        <section class="panel">
+          <div class="hero">
+            <div class="hero-grid">
+              <div>
+                <h2 id="subsystemName">Subsystem</h2>
+                <p id="subsystemDescription" class="panel-subtitle"></p>
+                <div class="badge-row" id="subsystemBadges"></div>
+              </div>
+              <div class="meta-grid" id="metricGrid"></div>
+            </div>
+          </div>
+
+          <div class="map" id="map">
+            <svg id="mapLines" aria-hidden="true"></svg>
+            <div id="mapNodes"></div>
+          </div>
+
+          <div class="focus-strip">
+            <div>
+              <div class="panel-title" id="focusTitle">Focus</div>
+              <div class="panel-subtitle" id="focusDescription"></div>
+              <div class="badge-row" id="focusBadges"></div>
+            </div>
+            <div class="toolbar">
+              <div class="field">
+                <label for="focusPartSelect">Focus part</label>
+                <select id="focusPartSelect" disabled>
+                  <option value="">Load context first</option>
+                </select>
+              </div>
+              <div class="field">
+                <label for="optionalCriteria">Criteria</label>
+                <input id="optionalCriteria" placeholder="optional criteria" />
+              </div>
+              <button class="btn primary" id="runOptimizer">Start run</button>
+            </div>
+          </div>
+
+          <div class="mode-grid" id="modeGrid"></div>
+        </section>
+
+        <section class="panel">
+          <div class="panel-head">
+            <div>
+              <div class="panel-title">Optimization Opportunities</div>
+              <div class="panel-subtitle">LLM-discovered horizon opportunities grounded in backend facts.</div>
+            </div>
+            <button class="btn primary" id="discoverOpportunities">Discover opportunities</button>
+          </div>
+          <div class="panel-body">
+            <div id="opportunityList" class="list"></div>
+          </div>
+        </section>
+
+        <section class="panel">
+          <div class="panel-head">
+            <div>
+              <div class="panel-title">Candidate Alternatives</div>
+              <div class="panel-subtitle">Candidate discovery comes after an opportunity approach is selected.</div>
+            </div>
+            <div class="toolbar">
+              <button class="btn primary" id="discoverAlternatives">Discover alternatives</button>
+              <div class="segmented">
+                <button class="active" data-rank="overall">Overall</button>
+                <button data-rank="risk">Risk</button>
+                <button data-rank="cost">Cost</button>
+              </div>
+            </div>
+          </div>
+          <div class="panel-body">
+            <div id="candidateList" class="list"></div>
+          </div>
+        </section>
+      </section>
+
+      <aside class="column right">
+        <section class="panel">
+          <div class="panel-head">
+            <div>
+              <div class="panel-title">Impact Preview</div>
+              <div class="panel-subtitle">What changes if the selected candidate is applied.</div>
+            </div>
+            <span class="badge amber" id="impactState">preview</span>
+          </div>
+          <div class="panel-body">
+            <div class="score-grid" id="scoreGrid"></div>
+          </div>
+          <div class="panel-body">
+            <div class="panel-title">Signals</div>
+            <div class="list" id="signalList" style="margin-top:8px"></div>
+          </div>
+          <div class="panel-body">
+            <div class="panel-title">Blast Radius</div>
+            <div class="list" id="blastList" style="margin-top:8px"></div>
+          </div>
+          <div class="panel-body">
+            <button class="btn primary" id="previewChangeSet">Preview change set</button>
+            <button class="btn danger" id="rejectCandidate">Reject</button>
+          </div>
+        </section>
+
+        <section class="panel">
+          <div class="panel-head">
+            <div>
+              <div class="panel-title">Requirements & Interfaces</div>
+              <div class="panel-subtitle">Current constraints around the focus part.</div>
+            </div>
+          </div>
+          <div class="panel-body">
+            <table class="table">
+              <thead>
+                <tr>
+                  <th>Type</th>
+                  <th>Name</th>
+                  <th>Status</th>
+                </tr>
+              </thead>
+              <tbody id="constraintRows"></tbody>
+            </table>
+          </div>
+        </section>
+
+        <section class="panel">
+          <div class="panel-head">
+            <div>
+              <div class="panel-title">Raw Optimizer Context</div>
+              <div class="panel-subtitle">Useful while wiring the backend endpoint.</div>
+            </div>
+          </div>
+          <div class="panel-body">
+            <pre class="json-box" id="rawContext"></pre>
+          </div>
+        </section>
+      </aside>
+    </main>
+
+    <main class="workspace manifest-workspace hidden" id="manifestsWorkspace">
+      <section class="column">
+        <section class="panel">
+          <div class="panel-head">
+            <div>
+              <div class="panel-title">Manifest Upload</div>
+              <div class="panel-subtitle">Upload a manifest. Gemini detects name, category, and facts.</div>
+            </div>
+            <span class="badge gray" id="manifestState">idle</span>
+          </div>
+          <div class="panel-body">
+            <div class="list">
+              <div class="field">
+                <label for="manifestScope">Scope</label>
+                <select id="manifestScope">
+                  <option value="org">Org</option>
+                  <option value="program">Program</option>
+                  <option value="design">Design</option>
+                </select>
+              </div>
+              <div class="field">
+                <label for="manifestScopeId">Scope ID</label>
+                <input id="manifestScopeId" placeholder="blank for org, design id for design scope" />
+              </div>
+              <div class="field">
+                <label for="manifestFilename">Filename</label>
+                <input id="manifestFilename" placeholder="avl.csv" />
+              </div>
+              <div class="field">
+                <label for="manifestFile">Upload manifest</label>
+                <input id="manifestFile" type="file" accept=".pdf,.png,.jpg,.jpeg,.webp,.csv,.txt,application/pdf,image/png,image/jpeg,image/webp,text/csv,text/plain" />
+              </div>
+              <div class="toolbar">
+                <button class="btn primary" id="extractManifest">Extract</button>
+                <button class="btn" id="refreshManifests">Refresh</button>
+              </div>
+            </div>
+          </div>
+        </section>
+
+        <section class="panel">
+          <div class="panel-head">
+            <div>
+              <div class="panel-title">Manifest History</div>
+              <div class="panel-subtitle">Committed facts are resolved by scope during discovery.</div>
+            </div>
+          </div>
+          <div class="panel-body">
+            <div id="manifestList" class="list"></div>
+          </div>
+        </section>
+      </section>
+
+      <section class="column">
+        <section class="panel">
+          <div class="panel-head">
+            <div>
+              <div class="panel-title">Candidate Fact Review</div>
+              <div class="panel-subtitle">Accept, edit, add, or reject before committing to v2.facts.</div>
+            </div>
+            <button class="btn primary" id="commitManifest">Commit</button>
+          </div>
+          <div class="panel-body">
+            <div id="manifestErrors" class="list"></div>
+            <div id="manifestMetadata" class="list" style="margin-bottom:10px"></div>
+            <div class="toolbar" style="justify-content:flex-start;margin-bottom:10px">
+              <button class="btn" id="addManualFact">Add manual fact</button>
+            </div>
+            <div style="overflow:auto">
+              <table class="table">
+                <thead>
+                  <tr>
+                    <th>Status</th>
+                    <th>Subject</th>
+                    <th>Predicate</th>
+                    <th>Value</th>
+                    <th>Severity</th>
+                    <th>Evidence</th>
+                    <th>Confidence</th>
+                    <th>Actions</th>
+                  </tr>
+                </thead>
+                <tbody id="manifestCandidateRows"></tbody>
+              </table>
+            </div>
+          </div>
+        </section>
+      </section>
+    </main>
+
+    <main class="workspace manifest-workspace hidden" id="metricsWorkspace">
+      <section class="column">
+        <section class="panel">
+          <div class="panel-head">
+            <div>
+              <div class="panel-title">Metric Registry</div>
+              <div class="panel-subtitle">Controlled metrics used by observation mapping and future derivation.</div>
+            </div>
+            <button class="btn" id="refreshMetrics">Refresh</button>
+          </div>
+          <div class="panel-body">
+            <div id="metricList" class="list"></div>
+          </div>
+        </section>
+      </section>
+
+      <section class="column">
+        <section class="panel">
+          <div class="panel-head">
+            <div>
+              <div class="panel-title">Metric Editor</div>
+              <div class="panel-subtitle">Edit synonyms/defaults to prove the registry is config-driven.</div>
+            </div>
+            <button class="btn primary" id="saveMetric">Save metric</button>
+          </div>
+          <div class="panel-body">
+            <div class="list">
+              <div class="field"><label for="metricKey">Key</label><input id="metricKey" placeholder="unit_price" /></div>
+              <div class="field"><label for="metricLabel">Label</label><input id="metricLabel" placeholder="Unit Price" /></div>
+              <div class="field"><label for="metricUnitClass">Unit class</label><input id="metricUnitClass" placeholder="currency" /></div>
+              <div class="field"><label for="metricDirection">Direction</label><input id="metricDirection" placeholder="lower_better" /></div>
+              <div class="field"><label for="metricSynonyms">Synonyms JSON</label><textarea id="metricSynonyms" placeholder='["price","quote"]'></textarea></div>
+              <pre class="json-box" id="metricRaw"></pre>
+            </div>
+          </div>
+        </section>
+      </section>
+    </main>
+
+    <main class="workspace manifest-workspace hidden" id="observationsWorkspace">
+      <section class="column">
+        <section class="panel">
+          <div class="panel-head">
+            <div>
+              <div class="panel-title">Observation Source Upload</div>
+              <div class="panel-subtitle">Document/CSV -> extraction groups -> review matrix -> bulk commit.</div>
+            </div>
+            <span class="badge gray" id="observationBatchState">idle</span>
+          </div>
+          <div class="panel-body">
+            <div class="list">
+              <div class="field">
+                <label for="observationFile">Upload observation source</label>
+                <input id="observationFile" type="file" accept=".csv,text/csv,.txt,text/plain,.pdf,application/pdf,.png,image/png,.jpg,.jpeg,image/jpeg,.webp,image/webp" />
+              </div>
+              <div class="field">
+                <label for="observationFilename">Filename</label>
+                <input id="observationFilename" placeholder="rfq_history.csv" />
+              </div>
+              <div class="field">
+                <label for="observationReceivedAt">Received at</label>
+                <input id="observationReceivedAt" type="date" />
+              </div>
+              <div class="field">
+                <label for="observationSourceOwner">Source owner</label>
+                <input id="observationSourceOwner" placeholder="GSM, supplier, lab, engineer" />
+              </div>
+              <div class="field">
+                <label for="observationSourceType">Source type</label>
+                <input id="observationSourceType" placeholder="quote_pdf, scorecard, test_report" />
+              </div>
+              <div class="field">
+                <label for="observationNotes">Notes</label>
+                <textarea id="observationNotes" placeholder="Optional context for extraction/review"></textarea>
+              </div>
+              <div class="toolbar">
+                <button class="btn primary" id="uploadObservations">Upload source</button>
+                <button class="btn" id="approveObservationMapping">Approve mapping</button>
+                <button class="btn" id="loadObservationRows">Load candidate rows</button>
+                <button class="btn primary" id="commitObservations">Commit batch</button>
+              </div>
+              <div id="observationWarnings" class="list"></div>
+              <div id="observationGroups" class="list"></div>
+              <div id="observationSuggestedMetrics" class="list"></div>
+            </div>
+          </div>
+        </section>
+
+        <section class="panel">
+          <div class="panel-head">
+            <div>
+              <div class="panel-title">Proposed Mapping</div>
+              <div class="panel-subtitle">Edit JSON before approving if needed.</div>
+            </div>
+          </div>
+          <div class="panel-body">
+            <textarea id="observationMappingJson" placeholder="Upload CSV to generate mapping"></textarea>
+          </div>
+        </section>
+      </section>
+
+      <section class="column">
+        <section class="panel">
+          <div class="panel-head">
+            <div>
+              <div class="panel-title">Extraction Review Matrix</div>
+              <div class="panel-subtitle">Verify mapping, values, dates, provenance, and metric approval in one place.</div>
+            </div>
+            <button class="btn" id="refreshObservations">Refresh observations</button>
+          </div>
+          <div class="panel-body">
+            <div class="score-grid">
+              <div class="score"><span>Loaded Rows</span><strong id="observationSampleCount">0</strong></div>
+              <div class="score"><span>Quarantined</span><strong id="observationQuarantineCount">0</strong></div>
+              <div class="score"><span>Suggested Roles</span><strong id="observationSuggestedMetricCount">0</strong></div>
+              <div class="score"><span>Needs Review</span><strong id="observationNeedsReviewCount">0</strong></div>
+            </div>
+            <div id="observationSampleScope" class="panel-subtitle" style="margin-top:8px"></div>
+            <div id="observationReadinessPanel" class="list" style="margin-top:10px"></div>
+            <div id="observationCommitSummary" class="list" style="margin-top:10px"></div>
+            <div class="toolbar" style="margin-top:10px">
+              <button class="btn active" data-observation-filter="all">All</button>
+              <button class="btn" data-observation-filter="ready">Ready</button>
+              <button class="btn" data-observation-filter="needs_review">Needs review</button>
+              <button class="btn" data-observation-filter="unknown_metric">Unknown metric</button>
+              <button class="btn" data-observation-filter="quarantined">Quarantined</button>
+              <button class="btn" data-observation-filter="rejected">Rejected</button>
+            </div>
+            <div id="metricUsageList" class="list" style="margin-top:10px"></div>
+            <div style="overflow:auto;margin-top:10px">
+              <table class="table">
+                <thead>
+                  <tr>
+                    <th>Group</th>
+                    <th>Kind</th>
+                    <th>Subject</th>
+                    <th>Role / Metric</th>
+                    <th>Value</th>
+                    <th>Unit/Currency</th>
+                    <th>Date</th>
+                    <th>Dimensions</th>
+                    <th>Source</th>
+                    <th>Status</th>
+                    <th>Actions</th>
+                  </tr>
+                </thead>
+                <tbody id="observationReviewRows"></tbody>
+              </table>
+            </div>
+            <div id="observationGroupEditor" class="list" style="margin-top:10px"></div>
+            <div id="observationRowEditor" class="list" style="margin-top:10px"></div>
+          </div>
+        </section>
+
+        <section class="panel">
+          <div class="panel-head">
+            <div>
+              <div class="panel-title">Committed Observations</div>
+              <div class="panel-subtitle">Rows currently visible to future derivation/aggregation.</div>
+            </div>
+          </div>
+          <div class="panel-body">
+            <div style="overflow:auto">
+              <table class="table">
+                <thead><tr><th>Kind</th><th>Role / Metric</th><th>Subject</th><th>Supplier</th><th>Value</th><th>Observed</th><th>Review</th><th>Hash</th></tr></thead>
+                <tbody id="observationRows"></tbody>
+              </table>
+            </div>
+          </div>
+        </section>
+      </section>
+    </main>
+
+    <main class="workspace manifest-workspace hidden" id="inspectorWorkspace">
+      <section class="column">
+        <section class="panel">
+          <div class="panel-head">
+            <div>
+              <div class="panel-title">Facts Inspector</div>
+              <div class="panel-subtitle">Scope-resolved facts for the selected design.</div>
+            </div>
+            <button class="btn" id="loadInspector">Load inspector</button>
+          </div>
+          <div class="panel-body">
+            <div id="factRows" class="list"></div>
+          </div>
+        </section>
+      </section>
+
+      <section class="column">
+        <section class="panel">
+          <div class="panel-head">
+            <div>
+              <div class="panel-title">Raw JSON Debug</div>
+              <div class="panel-subtitle">Last API response, visible without opening DevTools.</div>
+            </div>
+          </div>
+          <div class="panel-body">
+            <pre class="json-box" id="lastResponseRaw"></pre>
+          </div>
+        </section>
+      </section>
+    </main>
+
+    <div class="status-line" id="statusLine">Ready.</div>
+  </div>
+
+  <script>
+    const modes = [
+      { id: "lower_risk", title: "Lower risk", text: "Prefer proven, available, low-change replacements." },
+      { id: "cost_down", title: "Cost down", text: "Reduce unit cost after hard constraints pass." },
+      { id: "availability", title: "Availability", text: "Improve lifecycle and lead-time posture." },
+      { id: "performance", title: "Performance", text: "Improve thermal, electrical, or compliance margin." }
+    ];
+
+    const state = {
+      context: null,
+      selectedPartId: null,
+      selectedMode: "lower_risk",
+      candidates: [],
+      selectedCandidateId: null,
+      opportunities: [],
+      selectedOpportunityId: null,
+      selectedApproachId: null,
+      discoveryBrief: null,
+      rankBy: "overall",
+      activeRun: null,
+      pendingDesignId: null,
+      pendingSubsystemId: null,
+      designs: [],
+      subsystems: [],
+      appMode: "optimizer",
+      manifests: [],
+      activeManifest: null,
+      metrics: [],
+      selectedMetricKey: null,
+      observationBatch: null,
+      observationSample: [],
+      activeObservationRowId: null,
+      observations: [],
+      observationFilter: "all",
+      observationCommitSummary: null,
+      facts: [],
+      lastResponse: null
+    };
+
+    const el = (id) => document.getElementById(id);
+    const esc = (value) => String(value ?? "").replace(/[&<>"']/g, (ch) => ({ "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;", "'": "&#039;" }[ch]));
+    const percent = (value) => `${Math.round(Number(value || 0) * 100)}%`;
+    const DEBUG_OPTIMIZER = true;
+
+    function debugLog(label, payload = null) {
+      if (!DEBUG_OPTIMIZER) return;
+      const stamp = new Date().toISOString();
+      if (payload === null || payload === undefined) {
+        console.log(`[optimizer-v2 ${stamp}] ${label}`);
+        return;
+      }
+      console.groupCollapsed(`[optimizer-v2 ${stamp}] ${label}`);
+      console.log(payload);
+      console.groupEnd();
+    }
+
+    function setStatus(message) {
+      el("statusLine").textContent = message;
+      debugLog(`status: ${message}`);
+    }
+
+    function setLastResponse(label, payload) {
+      state.lastResponse = { label, payload, at: new Date().toISOString() };
+      const target = el("lastResponseRaw");
+      if (target) target.textContent = JSON.stringify(state.lastResponse, null, 2);
+      debugLog(label, payload);
+    }
+
+    function setAppMode(mode) {
+      state.appMode = mode;
+      el("optimizerWorkspace").classList.toggle("hidden", mode !== "optimizer");
+      el("manifestsWorkspace").classList.toggle("hidden", mode !== "manifests");
+      el("metricsWorkspace").classList.toggle("hidden", mode !== "metrics");
+      el("observationsWorkspace").classList.toggle("hidden", mode !== "observations");
+      el("inspectorWorkspace").classList.toggle("hidden", mode !== "inspector");
+      document.querySelectorAll("[data-app-mode]").forEach((button) => {
+        button.classList.toggle("active", button.dataset.appMode === mode);
+      });
+      if (mode === "metrics") {
+        loadMetrics();
+      }
+      if (mode === "manifests") {
+        renderManifestWorkspace();
+        loadManifests();
+      }
+      if (mode === "observations") {
+        renderObservationsWorkspace();
+        loadObservations();
+      }
+      if (mode === "inspector") {
+        renderInspector();
+        loadInspector();
+      }
+    }
+
+    async function fetchJson(url, options = {}) {
+      const isFormData = typeof FormData !== "undefined" && options.body instanceof FormData;
+      const headers = isFormData ? (options.headers || {}) : { "Content-Type": "application/json", ...(options.headers || {}) };
+      const response = await fetch(url, {
+        ...options,
+        headers,
+      });
+      if (!response.ok) {
+        let detail = `${response.status} ${response.statusText}`;
+        try {
+          const payload = await response.json();
+          detail = payload.detail || detail;
+        } catch (_error) {
+          // Ignore non-JSON error bodies in the prototype.
+        }
+        throw new Error(detail);
+      }
+      return response.json();
+    }
+
+    function normalizeContext(input) {
+      if (!input) throw new Error("Empty optimizer context response");
+      return {
+        design: input.design || input,
+        subsystem: input.subsystem || {},
+        parts: input.parts || input.subsystem_parts || [],
+        connections: input.connections || [],
+        interfaces: input.interfaces || [],
+        requirements: input.requirements || input.design_requirements || [],
+        subsystem_requirements: input.subsystem_requirements || [],
+        missing_data: input.missing_data || input.missing || []
+      };
+    }
+
+    function normalizeSignals(items) {
+      return (items || []).map((item) => {
+        if (Array.isArray(item)) return item;
+        return [
+          item.tone || item.severity || "info",
+          item.title || item.type || "Signal",
+          item.text || item.message || item.label || ""
+        ];
+      });
+    }
+
+    function normalizeCandidates(input) {
+      const items = input?.candidates || input?.items || input?.optimization_candidates || [];
+      return items.map((candidate, index) => ({
+        id: candidate.id || candidate.candidate_id || `candidate-${index + 1}`,
+        title: candidate.title || candidate.name || candidate.part_number || `Candidate ${index + 1}`,
+        summary: candidate.summary || candidate.description || "",
+        decision: candidate.decision || candidate.recommendation || candidate.status || "Review",
+        risk: candidate.risk || candidate.risk_level || "Medium",
+        overall: candidate.overall ?? candidate.score ?? candidate.overall_score ?? 0,
+        scores: candidate.scores || {},
+        signals: normalizeSignals(candidate.signals),
+        blast: normalizeSignals(candidate.blast || candidate.impacts || candidate.impact)
+      }));
+    }
+
+    function normalizeApproaches(input) {
+      return (input || []).map((item, index) => ({
+        id: item.id || item.approach_id || `approach-${index + 1}`,
+        opportunity_id: item.opportunity_id,
+        strategy: item.strategy || "data_enrichment_first",
+        title: item.title || "Untitled approach",
+        rationale: item.rationale || item.description || "",
+        confidence: item.confidence ?? 0,
+        status: item.status || "suggested",
+        search_directives: item.search_directives || {},
+        raw: item
+      }));
+    }
+
+    function normalizeOpportunities(input) {
+      const items = input?.opportunities || input?.items || [];
+      return items.map((item) => ({
+        id: item.id || item.opportunity_id,
+        title: item.title || "Untitled opportunity",
+        opportunity_type: item.opportunity_type || "opportunity",
+        axis: item.axis || "technical",
+        scope_type: item.scope_type,
+        scope_id: item.scope_id,
+        hypothesis: item.hypothesis || item.summary || "",
+        status: item.status || "suggested",
+        priority_score: item.priority_score ?? 0,
+        confidence: item.confidence ?? 0,
+        evidence: item.evidence || [],
+        unknowns: item.unknowns || [],
+        recommended_next_steps: item.recommended_next_steps || [],
+        approaches: normalizeApproaches(item.approaches || []),
+        validation_errors: item.validation_errors || [],
+        raw: item
+      })).sort((a, b) => Number(b.priority_score || 0) - Number(a.priority_score || 0));
+    }
+
+    function initialiseFromUrl() {
+      const params = new URLSearchParams(window.location.search);
+      const api = params.get("api") || params.get("apiBase");
+      const designId = params.get("design_id") || params.get("designId") || params.get("session");
+      const subsystemId = params.get("subsystem_id") || params.get("subsystemId") || params.get("subsystem");
+      if (api) el("apiBase").value = api;
+      state.pendingDesignId = designId || null;
+      state.pendingSubsystemId = subsystemId || null;
+    }
+
+    function apiBase() {
+      return el("apiBase").value.replace(/\/$/, "");
+    }
+
+    function selectedDesignId() {
+      return el("designSelect").value || state.pendingDesignId || "";
+    }
+
+    function selectedSubsystemId() {
+      return el("subsystemSelect").value || state.pendingSubsystemId || "";
+    }
+
+    function designLabel(design) {
+      const id = design.id || design.design_id || "";
+      const shortId = id ? id.slice(0, 8) : "no-id";
+      const name = design.project_name || design.name || design.title || "Untitled design";
+      const state = design.fsm_state || design.current_stage || "unknown";
+      const created = design.created_at ? new Date(design.created_at).toLocaleString() : "no date";
+      return `${name} | ${shortId} | ${state} | ${created}`;
+    }
+
+    function subsystemLabel(subsystem) {
+      const key = subsystem.subsystem_key || subsystem.key || "";
+      const name = subsystem.name || subsystem.title || subsystem.subsystem_id || subsystem.id;
+      const status = subsystem.status ? ` (${subsystem.status})` : "";
+      return `${key ? `${key} ` : ""}${name}${status}`;
+    }
+
+    function partLabel(part) {
+      const mpn = part.mpn || part.part_number || part.design_part_id;
+      const refs = (part.reference_designators || []).join(", ");
+      const role = part.role || part.classification || "";
+      return `${mpn}${refs ? ` / ${refs}` : ""}${role ? ` (${role})` : ""}`;
+    }
+
+    function normalizeDesigns(payload) {
+      return payload?.items || payload?.designs || payload?.data || (Array.isArray(payload) ? payload : []);
+    }
+
+    function normalizeSubsystems(payload) {
+      return payload?.subsystems || payload?.items || payload?.data || (Array.isArray(payload) ? payload : []);
+    }
+
+    function setSelectOptions(select, items, getValue, getLabel, placeholder, selectedValue) {
+      const selectedExists = selectedValue && items.some((item) => getValue(item) === selectedValue);
+      const extra = selectedValue && !selectedExists
+        ? `<option value="${esc(selectedValue)}" selected>${esc(selectedValue)} (from URL)</option>`
+        : "";
+      select.innerHTML = `
+        <option value="">${esc(placeholder)}</option>
+        ${extra}
+        ${items.map((item) => {
+          const value = getValue(item);
+          return `<option value="${esc(value)}" ${value === selectedValue ? "selected" : ""}>${esc(getLabel(item))}</option>`;
+        }).join("")}
+      `;
+    }
+
+    async function loadDesigns() {
+      const url = `${apiBase()}/designs?limit=100`;
+      setStatus("Loading designs from backend...");
+      debugLog("loadDesigns request", { url });
+      const select = el("designSelect");
+      select.disabled = true;
+      try {
+        const response = await fetch(url);
+        if (!response.ok) throw new Error(`${response.status} ${response.statusText}`);
+        const payload = await response.json();
+        debugLog("loadDesigns response", payload);
+        state.designs = normalizeDesigns(payload).sort((a, b) => {
+          const left = a.created_at ? new Date(a.created_at).getTime() : 0;
+          const right = b.created_at ? new Date(b.created_at).getTime() : 0;
+          return right - left;
+        });
+        setSelectOptions(
+          select,
+          state.designs,
+          (design) => design.id || design.design_id,
+          designLabel,
+          "Select a session / design",
+          state.pendingDesignId
+        );
+        select.disabled = false;
+        setStatus(`Loaded ${state.designs.length} designs.`);
+        if (selectedDesignId()) {
+          await loadSubsystems(selectedDesignId());
+        }
+      } catch (error) {
+        debugLog("loadDesigns error", error);
+        select.innerHTML = `<option value="">Failed to load designs</option>`;
+        select.disabled = false;
+        setStatus(`Could not load designs: ${error.message}`);
+      }
+    }
+
+    async function loadSubsystems(designId) {
+      const select = el("subsystemSelect");
+      if (!designId) {
+        state.subsystems = [];
+        select.innerHTML = `<option value="">Select a design first</option>`;
+        select.disabled = true;
+        return;
+      }
+      const url = `${apiBase()}/designs/${encodeURIComponent(designId)}/subsystems`;
+      setStatus("Loading subsystems from backend...");
+      debugLog("loadSubsystems request", { url, designId });
+      select.disabled = true;
+      try {
+        const response = await fetch(url);
+        if (!response.ok) throw new Error(`${response.status} ${response.statusText}`);
+        const payload = await response.json();
+        debugLog("loadSubsystems response", payload);
+        state.subsystems = normalizeSubsystems(payload);
+        setSelectOptions(
+          select,
+          state.subsystems,
+          (subsystem) => subsystem.id || subsystem.subsystem_id,
+          subsystemLabel,
+          "Select a subsystem",
+          state.pendingSubsystemId
+        );
+        select.disabled = false;
+        setStatus(`Loaded ${state.subsystems.length} subsystems.`);
+        if (selectedSubsystemId() && state.pendingSubsystemId) {
+          await loadBackendContext();
+        }
+      } catch (error) {
+        debugLog("loadSubsystems error", error);
+        state.subsystems = [];
+        select.innerHTML = `<option value="">Failed to load subsystems</option>`;
+        select.disabled = false;
+        setStatus(`Could not load subsystems: ${error.message}`);
+      }
+    }
+
+    async function loadBackendContext() {
+      const designId = selectedDesignId();
+      const subsystemId = selectedSubsystemId();
+      if (!designId || !subsystemId) {
+        setStatus("Select a design and subsystem first.");
+        return;
+      }
+      const url = `${apiBase()}/designs/${encodeURIComponent(designId)}/optimization/subsystems/${encodeURIComponent(subsystemId)}/context`;
+      setStatus(`Loading ${url}`);
+      debugLog("loadBackendContext request", { url, designId, subsystemId });
+      try {
+        const response = await fetch(url);
+        if (!response.ok) throw new Error(`${response.status} ${response.statusText}`);
+        const payload = await response.json();
+        debugLog("loadBackendContext response", payload);
+        state.context = normalizeContext(payload);
+        state.selectedPartId = state.context.parts[0]?.design_part_id || null;
+        state.candidates = [];
+        state.selectedCandidateId = null;
+        state.opportunities = [];
+        state.selectedOpportunityId = null;
+        state.selectedApproachId = null;
+        state.discoveryBrief = null;
+        state.activeRun = null;
+        el("scopeState").textContent = "backend";
+        el("scopeState").className = "badge green";
+        render();
+        setStatus("Backend optimizer context loaded.");
+      } catch (error) {
+        debugLog("loadBackendContext error", error);
+        state.context = null;
+        state.selectedPartId = null;
+        state.candidates = [];
+        state.selectedCandidateId = null;
+        state.opportunities = [];
+        state.selectedOpportunityId = null;
+        state.selectedApproachId = null;
+        state.discoveryBrief = null;
+        state.activeRun = null;
+        el("scopeState").textContent = "not loaded";
+        el("scopeState").className = "badge gray";
+        render();
+        setStatus(`Backend context not available: ${error.message}.`);
+      }
+    }
+
+    function activePart() {
+      if (!state.context) return null;
+      return state.context.parts.find((part) => part.design_part_id === state.selectedPartId) || state.context.parts[0] || null;
+    }
+
+    function activeCandidate() {
+      return state.candidates.find((candidate) => candidate.id === state.selectedCandidateId) || state.candidates[0] || null;
+    }
+
+    function activeOpportunity() {
+      return state.opportunities.find((opportunity) => opportunity.id === state.selectedOpportunityId) || state.opportunities[0] || null;
+    }
+
+    async function runOptimizer() {
+      const part = activePart();
+      const designId = selectedDesignId();
+      const subsystemId = selectedSubsystemId();
+      if (!state.context || !part) {
+        setStatus("Load backend context and select a focus part first.");
+        return;
+      }
+      const url = `${apiBase()}/designs/${encodeURIComponent(designId)}/optimization/runs`;
+      const body = {
+        scope_type: "subsystem",
+        scope_id: subsystemId,
+        focus_type: "part",
+        focus_id: part.design_part_id,
+        intent: state.selectedMode,
+        optional_criteria: el("optionalCriteria").value.trim() || null
+      };
+      setStatus(`Starting optimizer run for ${part.mpn || part.design_part_id}...`);
+      debugLog("runOptimizer request", { url, body, selectedPart: part });
+      try {
+        const response = await fetch(url, {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify(body)
+        });
+        if (!response.ok) throw new Error(`${response.status} ${response.statusText}`);
+        const payload = await response.json();
+        debugLog("runOptimizer response", payload);
+        state.activeRun = payload.run || null;
+        if (payload.context) {
+          state.context = normalizeContext(payload.context);
+        }
+        state.candidates = normalizeCandidates(payload);
+        state.opportunities = normalizeOpportunities(payload);
+        state.selectedOpportunityId = state.opportunities[0]?.id || null;
+        state.selectedApproachId = null;
+        state.discoveryBrief = null;
+        state.selectedCandidateId = state.candidates[0]?.id || null;
+        render();
+        renderCandidates();
+        renderImpact();
+        setStatus(`Optimization run started: ${state.activeRun?.run_id || state.activeRun?.id || "unknown run"}. Next: discover opportunities.`);
+      } catch (error) {
+        debugLog("runOptimizer error", error);
+        state.candidates = [];
+        state.selectedCandidateId = null;
+        state.opportunities = [];
+        state.selectedOpportunityId = null;
+        state.selectedApproachId = null;
+        state.discoveryBrief = null;
+        state.activeRun = null;
+        renderCandidates();
+        renderImpact();
+        setStatus(`Could not start optimizer run: ${error.message}.`);
+      }
+    }
+
+    async function discoverOpportunities() {
+      const designId = selectedDesignId();
+      const runId = state.activeRun?.run_id || state.activeRun?.id;
+      if (!runId) {
+        setStatus("Start an optimization run first.");
+        return;
+      }
+      const url = `${apiBase()}/designs/${encodeURIComponent(designId)}/optimization/runs/${encodeURIComponent(runId)}/opportunities/discover`;
+      setStatus("Discovering optimization opportunities...");
+      debugLog("discoverOpportunities request", { url, designId, runId });
+      try {
+        const response = await fetch(url, { method: "POST" });
+        if (!response.ok) throw new Error(`${response.status} ${response.statusText}`);
+        const payload = await response.json();
+        debugLog("discoverOpportunities response", payload);
+        state.activeRun = payload.run || state.activeRun;
+        state.opportunities = normalizeOpportunities(payload);
+        state.selectedOpportunityId = state.opportunities[0]?.id || null;
+        render();
+        setStatus(`Discovered ${state.opportunities.length} opportunities.`);
+      } catch (error) {
+        debugLog("discoverOpportunities error", error);
+        setStatus(`Could not discover opportunities: ${error.message}.`);
+      }
+    }
+
+    async function selectApproach(opportunityId, approachId) {
+      const designId = selectedDesignId();
+      const runId = state.activeRun?.run_id || state.activeRun?.id;
+      if (!runId) {
+        setStatus("Start an optimization run first.");
+        return;
+      }
+      const url = `${apiBase()}/designs/${encodeURIComponent(designId)}/optimization/runs/${encodeURIComponent(runId)}/opportunities/${encodeURIComponent(opportunityId)}/approaches/${encodeURIComponent(approachId)}/select`;
+      setStatus("Selecting approach...");
+      debugLog("selectApproach request", { url, designId, runId, opportunityId, approachId });
+      try {
+        const response = await fetch(url, { method: "POST" });
+        if (!response.ok) throw new Error(`${response.status} ${response.statusText}`);
+        const payload = await response.json();
+        debugLog("selectApproach response", payload);
+        state.activeRun = payload.run || state.activeRun;
+        state.selectedOpportunityId = payload.opportunity?.id || payload.opportunity?.opportunity_id || opportunityId;
+        state.selectedApproachId = payload.approach?.id || payload.approach?.approach_id || approachId;
+        state.discoveryBrief = payload.brief || null;
+        state.opportunities = state.opportunities.map((opportunity) => ({
+          ...opportunity,
+          status: opportunity.id === state.selectedOpportunityId ? "accepted" : opportunity.status,
+          approaches: opportunity.approaches.map((approach) => ({
+            ...approach,
+            status: approach.id === state.selectedApproachId ? "selected" : (
+              opportunity.id === state.selectedOpportunityId ? "suggested" : approach.status
+            )
+          }))
+        }));
+        render();
+        setStatus("Approach selected. Next: discover alternatives.");
+      } catch (error) {
+        debugLog("selectApproach error", error);
+        setStatus(`Could not select approach: ${error.message}.`);
+      }
+    }
+
+    async function dismissOpportunity(opportunityId) {
+      const designId = selectedDesignId();
+      const runId = state.activeRun?.run_id || state.activeRun?.id;
+      if (!runId) {
+        setStatus("Start an optimization run first.");
+        return;
+      }
+      const url = `${apiBase()}/designs/${encodeURIComponent(designId)}/optimization/runs/${encodeURIComponent(runId)}/opportunities/${encodeURIComponent(opportunityId)}/dismiss`;
+      setStatus("Dismissing opportunity...");
+      debugLog("dismissOpportunity request", { url, designId, runId, opportunityId });
+      try {
+        const response = await fetch(url, { method: "POST" });
+        if (!response.ok) throw new Error(`${response.status} ${response.statusText}`);
+        const payload = await response.json();
+        debugLog("dismissOpportunity response", payload);
+        state.opportunities = state.opportunities.map((opportunity) => (
+          opportunity.id === opportunityId ? { ...opportunity, status: "dismissed" } : opportunity
+        ));
+        if (state.selectedOpportunityId === opportunityId) {
+          state.selectedOpportunityId = state.opportunities.find((item) => item.status !== "dismissed")?.id || null;
+        }
+        render();
+        setStatus("Opportunity dismissed.");
+      } catch (error) {
+        debugLog("dismissOpportunity error", error);
+        setStatus(`Could not dismiss opportunity: ${error.message}.`);
+      }
+    }
+
+    async function discoverAlternatives() {
+      const designId = selectedDesignId();
+      const runId = state.activeRun?.run_id || state.activeRun?.id;
+      if (!runId) {
+        setStatus("Start an optimization run first.");
+        return;
+      }
+      if (!state.selectedApproachId) {
+        setStatus("Select an approach first.");
+        return;
+      }
+      const url = `${apiBase()}/designs/${encodeURIComponent(designId)}/optimization/runs/${encodeURIComponent(runId)}/alternatives/discover`;
+      setStatus("Preparing alternative discovery brief...");
+      debugLog("discoverAlternatives request", { url, designId, runId, selectedApproachId: state.selectedApproachId });
+      try {
+        const response = await fetch(url, { method: "POST" });
+        if (!response.ok) throw new Error(`${response.status} ${response.statusText}`);
+        const payload = await response.json();
+        debugLog("discoverAlternatives response", payload);
+        state.activeRun = payload.run || state.activeRun;
+        state.discoveryBrief = payload.brief || null;
+        state.candidates = normalizeCandidates(payload);
+        state.selectedCandidateId = state.candidates[0]?.id || null;
+        render();
+        renderCandidates();
+        renderImpact();
+        setStatus("Alternative discovery brief prepared. Candidate search is not implemented yet.");
+      } catch (error) {
+        debugLog("discoverAlternatives error", error);
+        setStatus(`Could not discover alternatives: ${error.message}.`);
+      }
+    }
+
+    function normalizeManifest(input) {
+      return {
+        ...(input || {}),
+        id: input?.id || input?.manifest_id,
+        candidates: input?.candidates || [],
+        extraction_errors: input?.extraction_errors || [],
+      };
+    }
+
+    async function loadManifests() {
+      const url = `${apiBase()}/manifests`;
+      debugLog("loadManifests request", { url });
+      try {
+        const payload = await fetchJson(url);
+        state.manifests = payload.items || [];
+        renderManifestWorkspace();
+      } catch (error) {
+        debugLog("loadManifests error", error);
+        setStatus(`Could not load manifests: ${error.message}.`);
+      }
+    }
+
+    async function loadManifest(manifestId) {
+      const url = `${apiBase()}/manifests/${encodeURIComponent(manifestId)}`;
+      const payload = await fetchJson(url);
+      state.activeManifest = normalizeManifest(payload);
+      renderManifestWorkspace();
+    }
+
+    async function extractManifest() {
+      const selectedFile = el("manifestFile")?.files?.[0] || null;
+      if (!selectedFile) {
+        setStatus("Choose a manifest file first.");
+        return;
+      }
+      const body = {
+        manifest_type: "generic",
+        scope: el("manifestScope").value,
+        scope_id: el("manifestScopeId").value.trim() || null,
+        source_filename: el("manifestFilename").value.trim() || null,
+        source_mime_type: selectedFile?.type || "text/csv",
+      };
+      if (body.scope === "design" && !body.scope_id) {
+        body.scope_id = selectedDesignId() || null;
+        el("manifestScopeId").value = body.scope_id || "";
+      }
+      const form = new FormData();
+      form.append("file", selectedFile);
+      form.append("manifest_type", "generic");
+      form.append("scope", body.scope);
+      if (body.scope_id) form.append("scope_id", body.scope_id);
+      if (body.source_filename || selectedFile.name) form.append("source_filename", body.source_filename || selectedFile.name);
+      if (body.source_mime_type) form.append("source_mime_type", body.source_mime_type);
+      const url = `${apiBase()}/manifests`;
+      setStatus("Extracting manifest candidate facts...");
+      debugLog("extractManifest request", { url, body, file: selectedFile ? { name: selectedFile.name, type: selectedFile.type, size: selectedFile.size } : null });
+      try {
+        const payload = await fetchJson(url, { method: "POST", body: form });
+        debugLog("extractManifest response", payload);
+        state.activeManifest = normalizeManifest(payload);
+        el("manifestState").textContent = "extracted";
+        el("manifestState").className = "badge blue";
+        await loadManifests();
+        state.activeManifest = normalizeManifest(payload);
+        renderManifestWorkspace();
+        setStatus(`Extracted ${state.activeManifest.candidates.length} candidate facts.`);
+      } catch (error) {
+        debugLog("extractManifest error", error);
+        setStatus(`Could not extract manifest: ${error.message}.`);
+      }
+    }
+
+    async function saveManifestMetadata() {
+      const manifest = state.activeManifest;
+      if (!manifest) return;
+      const url = `${apiBase()}/manifests/${encodeURIComponent(manifest.id)}`;
+      const body = {
+        name: el("manifestDetectedName").value.trim(),
+        manifest_type: el("manifestDetectedType").value.trim().toLowerCase(),
+      };
+      try {
+        const payload = await fetchJson(url, { method: "PATCH", body: JSON.stringify(body) });
+        state.activeManifest = normalizeManifest(payload);
+        await loadManifests();
+        state.activeManifest = normalizeManifest(payload);
+        renderManifestWorkspace();
+        setStatus("Manifest metadata saved.");
+      } catch (error) {
+        setStatus(`Could not save manifest metadata: ${error.message}.`);
+      }
+    }
+
+    async function updateManifestCandidate(candidateId, action, fields = null) {
+      const manifest = state.activeManifest;
+      if (!manifest) return;
+      const url = `${apiBase()}/manifests/${encodeURIComponent(manifest.id)}/candidates/${encodeURIComponent(candidateId)}`;
+      const body = { action, reviewed_by: "prototype_user", fields };
+      debugLog("updateManifestCandidate request", { url, body });
+      try {
+        await fetchJson(url, { method: "PATCH", body: JSON.stringify(body) });
+        await loadManifest(manifest.id);
+        setStatus(`Candidate ${action} saved.`);
+      } catch (error) {
+        debugLog("updateManifestCandidate error", error);
+        setStatus(`Could not update candidate: ${error.message}.`);
+      }
+    }
+
+    async function editManifestCandidate(candidateId) {
+      const manifest = state.activeManifest;
+      const candidate = (manifest?.candidates || []).find((item) => item.id === candidateId || item.candidate_id === candidateId);
+      if (!candidate) return;
+      const raw = prompt("Edit candidate JSON", JSON.stringify({
+        subject_type: candidate.subject_type,
+        subject: candidate.subject,
+        predicate: candidate.predicate,
+        axis: candidate.axis,
+        value: candidate.value,
+        severity: candidate.severity,
+        label: candidate.label,
+        confidence: candidate.confidence,
+        ambiguity: candidate.ambiguity,
+      }, null, 2));
+      if (!raw) return;
+      try {
+        await updateManifestCandidate(candidateId, "edit", JSON.parse(raw));
+      } catch (error) {
+        setStatus(`Invalid JSON edit: ${error.message}.`);
+      }
+    }
+
+    async function addManualFact() {
+      const manifest = state.activeManifest;
+      if (!manifest) {
+        setStatus("Extract or select a manifest first.");
+        return;
+      }
+      const raw = prompt("Manual fact JSON", JSON.stringify({
+        subject_type: manifest.manifest_type === "avl" ? "manufacturer" : "mpn",
+        subject: "",
+        predicate: manifest.manifest_type === "avl" ? "avl_status" : "rfq_baseline_price",
+        axis: manifest.manifest_type === "avl" ? "supply" : "cost",
+        value: manifest.manifest_type === "avl" ? { status: "approved" } : { unit_cost: 1.23, qty_break: 1000 },
+        label: "Manual manifest fact",
+        confidence: 1
+      }, null, 2));
+      if (!raw) return;
+      const url = `${apiBase()}/manifests/${encodeURIComponent(manifest.id)}/candidates`;
+      try {
+        await fetchJson(url, { method: "POST", body: JSON.stringify({ ...JSON.parse(raw), reviewed_by: "prototype_user" }) });
+        await loadManifest(manifest.id);
+        setStatus("Manual fact added.");
+      } catch (error) {
+        setStatus(`Could not add manual fact: ${error.message}.`);
+      }
+    }
+
+    async function commitManifest() {
+      const manifest = state.activeManifest;
+      if (!manifest) {
+        setStatus("Extract or select a manifest first.");
+        return;
+      }
+      const pending = (manifest.candidates || []).filter((item) => item.review_status === "pending").length;
+      if (pending) {
+        setStatus(`Review all candidates first. ${pending} pending.`);
+        return;
+      }
+      const url = `${apiBase()}/manifests/${encodeURIComponent(manifest.id)}/commit`;
+      try {
+        const payload = await fetchJson(url, { method: "POST", body: JSON.stringify({ committed_by: "prototype_user" }) });
+        state.activeManifest = normalizeManifest(payload.manifest);
+        await loadManifests();
+        await loadManifest(state.activeManifest.id);
+        setStatus(`Manifest committed. ${payload.facts_count} facts are now visible to optimizer discovery.`);
+      } catch (error) {
+        setStatus(`Could not commit manifest: ${error.message}.`);
+      }
+    }
+
+    function parseJsonField(id, fallback) {
+      const raw = el(id).value.trim();
+      if (!raw) return fallback;
+      return JSON.parse(raw);
+    }
+
+    function shortHash(value) {
+      return value ? String(value).slice(0, 12) : "";
+    }
+
+    function renderMetricsWorkspace() {
+      const metrics = state.metrics || [];
+      const selected = metrics.find((item) => item.key === state.selectedMetricKey) || metrics[0] || null;
+      if (selected && state.selectedMetricKey !== selected.key) state.selectedMetricKey = selected.key;
+      el("metricList").innerHTML = metrics.length ? metrics.map((metric) => `
+        <button class="candidate ${metric.key === state.selectedMetricKey ? "active" : ""}" data-metric="${esc(metric.key)}">
+          <div class="candidate-head">
+            <h3>${esc(metric.label || metric.key)}</h3>
+            <span class="badge ${metric.status === "deprecated" ? "amber" : "green"}">${esc(metric.status || "active")}</span>
+          </div>
+          <p>${esc(metric.key)} | ${esc(metric.unit_class)} | ${esc(metric.direction)}</p>
+          <div class="badge-row">
+            ${(metric.synonyms || []).slice(0, 4).map((item) => `<span class="badge">${esc(item)}</span>`).join("")}
+          </div>
+        </button>
+      `).join("") : `<div class="signal"><span class="dot warn"></span><div><strong>No metrics</strong><span>Create one or run the latest migrations.</span></div></div>`;
+
+      el("metricKey").value = selected?.key || "";
+      el("metricLabel").value = selected?.label || "";
+      el("metricUnitClass").value = selected?.unit_class || "score";
+      el("metricDirection").value = selected?.direction || "neutral";
+      el("metricSynonyms").value = JSON.stringify(selected?.synonyms || [], null, 2);
+      el("metricRaw").textContent = selected ? JSON.stringify(selected, null, 2) : "";
+    }
+
+    async function loadMetrics() {
+      const url = `${apiBase()}/metrics`;
+      setStatus("Loading metric registry...");
+      try {
+        const payload = await fetchJson(url);
+        state.metrics = payload.items || [];
+        setLastResponse("loadMetrics response", payload);
+        renderMetricsWorkspace();
+        setStatus(`Loaded ${state.metrics.length} metrics.`);
+      } catch (error) {
+        debugLog("loadMetrics error", error);
+        setStatus(`Could not load metrics: ${error.message}.`);
+      }
+    }
+
+    function selectMetric(key) {
+      state.selectedMetricKey = key;
+      renderMetricsWorkspace();
+      setStatus(`Metric selected: ${key}`);
+    }
+
+    async function saveMetric() {
+      const key = el("metricKey").value.trim();
+      if (!key) {
+        setStatus("Metric key is required.");
+        return;
+      }
+      let synonyms;
+      try {
+        synonyms = parseJsonField("metricSynonyms", []);
+      } catch (error) {
+        setStatus(`Invalid synonyms JSON: ${error.message}.`);
+        return;
+      }
+      const exists = state.metrics.some((item) => item.key === key);
+      const body = {
+        key,
+        label: el("metricLabel").value.trim() || key,
+        value_type: "numeric",
+        unit_class: el("metricUnitClass").value.trim() || "score",
+        direction: el("metricDirection").value.trim() || "neutral",
+        synonyms,
+        created_by: "prototype_user",
+      };
+      const url = exists ? `${apiBase()}/metrics/${encodeURIComponent(key)}` : `${apiBase()}/metrics`;
+      const method = exists ? "PATCH" : "POST";
+      setStatus(`${exists ? "Updating" : "Creating"} metric ${key}...`);
+      try {
+        const payload = await fetchJson(url, { method, body: JSON.stringify(body) });
+        state.selectedMetricKey = payload.key;
+        setLastResponse("saveMetric response", payload);
+        await loadMetrics();
+      } catch (error) {
+        debugLog("saveMetric error", error);
+        setStatus(`Could not save metric: ${error.message}.`);
+      }
+    }
+
+    function batchWarnings(batch) {
+      const metadata = batch?.metadata || {};
+      const warnings = Array.isArray(metadata.warnings) ? metadata.warnings : [];
+      const parked = Array.isArray(metadata.parked) ? metadata.parked.map((item) => `Parked column: ${item}`) : [];
+      return [...warnings, ...parked];
+    }
+
+    function metricStatusMap(batch) {
+      const metrics = batch?.metadata?.suggested_metrics || [];
+      return new Map(metrics.map((item) => [String(item.key || "").toLowerCase(), item]));
+    }
+
+    function observationGroupMap(batch) {
+      const groups = batch?.metadata?.candidate_groups || [];
+      return new Map(groups.map((item) => [String(item.group_id || ""), item]));
+    }
+
+    function observationValue(item) {
+      if (item.value_numeric !== null && item.value_numeric !== undefined) return item.value_numeric;
+      if (item.value_text) return item.value_text;
+      if (item.value_json) return JSON.stringify(item.value_json);
+      return "";
+    }
+
+    function observationDimensions(item) {
+      const dimensions = item.dimensions || {};
+      const entries = Object.entries(dimensions);
+      if (!entries.length) return "";
+      return entries.map(([key, value]) => `${key}: ${typeof value === "object" ? JSON.stringify(value) : value}`).join(" | ");
+    }
+
+    function observationSource(item) {
+      const parts = [];
+      if (item.source_page) parts.push(`p${item.source_page}`);
+      if (item.source_excerpt) parts.push(`"${item.source_excerpt}"`);
+      if (!parts.length && item.source?.source_row) parts.push(`row ${item.source.source_row}`);
+      return parts.join(" | ");
+    }
+
+    function displayOrDash(value) {
+      return value === null || value === undefined || value === "" ? "-" : value;
+    }
+
+    function activeObservationRow() {
+      return (state.observationSample || []).find((row) => row.id === state.activeObservationRowId) || null;
+    }
+
+    function observationMetricOptions(selected = "") {
+      const keys = new Set((state.metrics || []).map((metric) => metric.key));
+      for (const row of state.observationSample || []) {
+        if (row.metric_key || row.metric) keys.add(row.metric_key || row.metric);
+      }
+      return `<option value="" ${!selected ? "selected" : ""}>No metric</option>` + [...keys].sort().map((key) => `<option value="${esc(key)}" ${key === selected ? "selected" : ""}>${esc(key)}</option>`).join("");
+    }
+
+    function observationKindOptions(selected = "metric_observation") {
+      const kinds = ["metric_observation", "state_fact", "constraint", "assumption", "commercial_term", "note"];
+      return kinds.map((kind) => `<option value="${esc(kind)}" ${kind === selected ? "selected" : ""}>${esc(kind)}</option>`).join("");
+    }
+
+    function observationGroupOptions(selected = "") {
+      const groups = observationGroupMap(state.observationBatch);
+      const ids = new Set((state.observationSample || []).map((row) => row.source_group_id || "grp-001"));
+      for (const id of groups.keys()) ids.add(id);
+      return [...ids].sort().map((id) => {
+        const group = groups.get(id);
+        return `<option value="${esc(id)}" ${id === selected ? "selected" : ""}>${esc(group?.label || id)}</option>`;
+      }).join("");
+    }
+
+    function observationBatchLocked(batch = state.observationBatch) {
+      return batch?.status === "committed";
+    }
+
+    function readJsonInput(id, fallback = {}) {
+      const text = el(id)?.value?.trim();
+      if (!text) return fallback;
+      return JSON.parse(text);
+    }
+
+    function observationStatus(item, suggestedMetric) {
+      if (item.__quarantined || item.status === "quarantined") return ["red", item.reason || "quarantined"];
+      if (suggestedMetric && suggestedMetric.status !== "approved") return ["amber", `metric ${suggestedMetric.status || "pending"}`];
+      if (item.status === "needs_review" || item.review_status === "needs_review" || item.date_quality === "needs_review" || item.date_quality === "missing") return ["amber", item.reason || item.date_quality || "needs_review"];
+      return ["green", item.status || item.review_status || "ready"];
+    }
+
+    function filteredObservationRows(batch) {
+      const suggested = metricStatusMap(batch);
+      const rows = (state.observationSample || []).map((item) => ({ ...item, __kind: "candidate" }));
+      if (state.observationFilter === "needs_review") {
+        return rows.filter((item) => item.status === "needs_review" || item.review_status === "needs_review" || item.date_quality === "needs_review" || item.date_quality === "missing");
+      }
+      if (state.observationFilter === "ready") {
+        return rows.filter((item) => item.status === "ready");
+      }
+      if (state.observationFilter === "unknown_metric") {
+        return rows.filter((item) => {
+          const metric = suggested.get(String(item.metric || item.metric_key || "").toLowerCase());
+          return metric && metric.status !== "approved";
+        });
+      }
+      if (state.observationFilter === "quarantined") {
+        return rows.filter((item) => item.status === "quarantined");
+      }
+      if (state.observationFilter === "rejected") {
+        return rows.filter((item) => item.status === "rejected");
+      }
+      return rows;
+    }
+
+    function renderMetricUsage(batch) {
+      const suggested = batch?.metadata?.suggested_metrics || [];
+      if (!suggested.length) {
+        el("metricUsageList").innerHTML = "";
+        return;
+      }
+      const usage = new Map();
+      const locked = observationBatchLocked(batch);
+      for (const row of state.observationSample || []) {
+        const key = String(row.metric || row.metric_key || "").toLowerCase();
+        usage.set(key, (usage.get(key) || 0) + 1);
+      }
+      const metricOptions = observationMetricOptions();
+      el("metricUsageList").innerHTML = suggested.map((metric) => `
+        <div class="signal">
+          <span class="dot ${metric.status === "approved" ? "good" : metric.status === "rejected" ? "bad" : "warn"}"></span>
+          <div>
+            <strong>${esc(metric.label || metric.key)}</strong>
+            <span>${esc(metric.key)} | used by ${esc(usage.get(String(metric.key || "").toLowerCase()) || 0)} loaded rows | ${esc(metric.value_type || "numeric")} | ${esc(metric.unit_class || "score")} | ${esc(metric.status || "pending")}${metric.mapped_to ? ` -> ${esc(metric.mapped_to)}` : ""}</span>
+            <div class="toolbar" style="margin-top:6px">
+              <button class="btn" data-suggested-metric-action="approve" data-suggested-metric="${esc(metric.key)}" ${locked ? "disabled" : ""}>Approve</button>
+              <button class="btn" data-suggested-metric-action="reject" data-suggested-metric="${esc(metric.key)}" ${locked ? "disabled" : ""}>Reject</button>
+              <select data-map-target="${esc(metric.key)}" ${locked ? "disabled" : ""}>${metricOptions}</select>
+              <button class="btn" data-suggested-metric-action="map" data-suggested-metric="${esc(metric.key)}" ${locked ? "disabled" : ""}>Map to existing</button>
+            </div>
+          </div>
+        </div>
+      `).join("");
+    }
+
+    function renderObservationReadiness(batch) {
+      if (!batch) {
+        el("observationReadinessPanel").innerHTML = "";
+        return;
+      }
+      const counts = batch.candidate_counts || batch.metadata?.candidate_row_counts || {};
+      const pendingMetrics = (batch.metadata?.suggested_metrics || []).filter((metric) => (metric.status || "pending") === "pending").length;
+      const warnings = [];
+      if (observationBatchLocked(batch)) warnings.push("Batch is committed and locked");
+      if (pendingMetrics) warnings.push(`${pendingMetrics} suggested metrics still pending`);
+      if (counts.quarantined) warnings.push(`${counts.quarantined} rows quarantined and will be skipped`);
+      if (counts.needs_review) warnings.push(`${counts.needs_review} rows will commit as needs-review and stay excluded from aggregation`);
+      if (batch.status !== "mapping_approved" && batch.status !== "committed") warnings.push("Mapping has not been approved");
+      el("observationReadinessPanel").innerHTML = warnings.length ? `
+        <div class="signal">
+          <span class="dot ${observationBatchLocked(batch) ? "good" : "warn"}"></span>
+          <div><strong>Commit readiness</strong><span>${warnings.map(esc).join(" | ")}</span></div>
+        </div>
+      ` : `
+        <div class="signal">
+          <span class="dot good"></span>
+          <div><strong>Commit readiness</strong><span>Candidate rows are ready for commit.</span></div>
+        </div>
+      `;
+    }
+
+    function renderObservationGroupEditor(batch) {
+      if (!batch || !state.observationSample.length) {
+        el("observationGroupEditor").innerHTML = "";
+        return;
+      }
+      const locked = observationBatchLocked(batch);
+      el("observationGroupEditor").innerHTML = `
+        <div class="candidate">
+          <div class="candidate-head">
+            <h3>Group bulk edit</h3>
+            <span class="badge blue">applies to unlocked, non-rejected rows</span>
+          </div>
+          <div class="toolbar">
+            <label class="field"><span>Group</span><select id="observationGroupEditId" ${locked ? "disabled" : ""}>${observationGroupOptions()}</select></label>
+            <label class="field"><span>Kind</span><select id="observationGroupKind" ${locked ? "disabled" : ""}><option value="">Keep kind</option>${observationKindOptions()}</select></label>
+            <label class="field"><span>Role</span><input id="observationGroupRole" placeholder="semantic_role" ${locked ? "disabled" : ""} /></label>
+            <label class="field"><span>Metric (optional)</span><select id="observationGroupMetric" ${locked ? "disabled" : ""}><option value="">Keep metric</option>${observationMetricOptions()}</select></label>
+            <label class="field"><span>Currency</span><input id="observationGroupCurrency" placeholder="USD" ${locked ? "disabled" : ""} /></label>
+            <label class="field"><span>Observed at</span><input id="observationGroupObservedAt" type="date" ${locked ? "disabled" : ""} /></label>
+            <button class="btn" id="applyObservationGroupEdit" ${locked ? "disabled" : ""}>Apply group edit</button>
+          </div>
+          ${locked ? `<div class="locked-note" style="margin-top:8px">This batch is committed. Group edits are locked; upload a new batch to revise observations.</div>` : ""}
+        </div>
+      `;
+    }
+
+    function renderObservationRowEditor() {
+      const row = activeObservationRow();
+      if (!row) {
+        el("observationRowEditor").innerHTML = "";
+        return;
+      }
+      const locked = observationBatchLocked() || row.locked;
+      el("observationRowEditor").innerHTML = `
+        <div class="candidate">
+          <div class="candidate-head">
+            <h3>Row editor</h3>
+            <span class="badge ${locked ? "gray" : row.status === "quarantined" ? "red" : row.status === "needs_review" ? "amber" : "blue"}">${esc(locked ? "locked" : row.status || "editable")}</span>
+          </div>
+          <p>${esc(row.reason ? `Validation: ${row.reason}` : "Validation: ready")}</p>
+          <div class="row-editor-grid">
+            <label class="field"><span>Subject type</span><input id="obsEditSubjectType" value="${esc(row.subject_type || "")}" ${locked ? "disabled" : ""} /></label>
+            <label class="field"><span>Subject</span><input id="obsEditSubject" value="${esc(row.subject || "")}" ${locked ? "disabled" : ""} /></label>
+            <label class="field"><span>MPN</span><input id="obsEditMpn" value="${esc(row.mpn || "")}" ${locked ? "disabled" : ""} /></label>
+            <label class="field"><span>Kind</span><select id="obsEditKind" ${locked ? "disabled" : ""}>${observationKindOptions(row.observation_kind || "metric_observation")}</select></label>
+            <label class="field"><span>Role</span><input id="obsEditRole" value="${esc(row.semantic_role || "")}" ${locked ? "disabled" : ""} /></label>
+            <label class="field"><span>Metric (optional)</span><select id="obsEditMetric" ${locked ? "disabled" : ""}>${observationMetricOptions(row.metric_key || row.metric || "")}</select></label>
+            <label class="field"><span>Numeric value</span><input id="obsEditValueNumeric" value="${esc(row.value_numeric ?? "")}" ${locked ? "disabled" : ""} /></label>
+            <label class="field"><span>Text value</span><input id="obsEditValueText" value="${esc(row.value_text || "")}" ${locked ? "disabled" : ""} /></label>
+            <label class="field"><span>Unit</span><input id="obsEditUnit" value="${esc(row.unit || "")}" ${locked ? "disabled" : ""} /></label>
+            <label class="field"><span>Currency</span><input id="obsEditCurrency" value="${esc(row.currency || "")}" ${locked ? "disabled" : ""} /></label>
+            <label class="field"><span>Observed at</span><input id="obsEditObservedAt" type="date" value="${esc((row.observed_at || "").slice(0, 10))}" ${locked ? "disabled" : ""} /></label>
+          </div>
+          <div class="field" style="margin-top:8px">
+            <label>Dimensions JSON</label>
+            <textarea id="obsEditDimensions" style="min-height:70px" ${locked ? "disabled" : ""}>${esc(JSON.stringify(row.dimensions || {}, null, 2))}</textarea>
+          </div>
+          <div class="field" style="margin-top:8px">
+            <label>Source excerpt</label>
+            <textarea id="obsEditSourceExcerpt" style="min-height:70px" ${locked ? "disabled" : ""}>${esc(row.source_excerpt || "")}</textarea>
+          </div>
+          ${locked ? `<div class="locked-note" style="margin-top:8px">This row is locked because the batch was committed. Upload a new batch to revise it.</div>` : ""}
+          <div class="toolbar" style="margin-top:8px">
+            <button class="btn primary" id="saveObservationRow" ${locked ? "disabled" : ""}>Save row</button>
+            <button class="btn" data-observation-row-action="accept" data-row-id="${esc(row.id)}" ${locked ? "disabled" : ""}>Accept</button>
+            <button class="btn danger" data-observation-row-action="reject" data-row-id="${esc(row.id)}" ${locked ? "disabled" : ""}>Reject</button>
+            <button class="btn" data-observation-row-action="close" data-row-id="${esc(row.id)}">Close</button>
+          </div>
+        </div>
+      `;
+    }
+
+    function renderObservationReviewMatrix(batch) {
+      const groups = observationGroupMap(batch);
+      const suggested = metricStatusMap(batch);
+      const rows = filteredObservationRows(batch);
+      el("observationReviewRows").innerHTML = rows.length ? rows.map((item) => {
+        const metricKey = String(item.metric || item.metric_key || "").toLowerCase();
+        const metric = suggested.get(metricKey);
+        const [tone, status] = observationStatus(item, metric);
+        const group = groups.get(item.source_group_id || item.source?.source_group_id || "grp-001");
+        const rowLocked = observationBatchLocked(batch) || item.locked;
+        return `
+          <tr class="${item.id === state.activeObservationRowId ? "row-active" : ""}">
+            <td><strong>${esc(group?.label || item.source_group_id || "grp-001")}</strong><br><span>${esc(group?.kind || item.__kind || "")}</span></td>
+            <td><strong>${esc(item.observation_kind || "metric_observation")}</strong></td>
+            <td><strong>${esc(item.mpn || item.subject || item.manufacturer || "")}</strong><br><span>${esc(item.subject_type || "")}</span></td>
+            <td><strong>${esc(item.semantic_role || item.metric || item.metric_key || "")}</strong><br>${item.metric || item.metric_key ? `<span>${esc(item.metric || item.metric_key || "")}</span>` : ""}${metric ? `<br><span class="badge ${metric.status === "approved" ? "green" : metric.status === "rejected" ? "red" : "amber"}">${esc(metric.status || "pending")}</span>` : ""}</td>
+            <td>${esc(displayOrDash(observationValue(item)))}</td>
+            <td>${esc(displayOrDash([item.unit, item.currency].filter(Boolean).join(" / ")))}</td>
+            <td>${esc(displayOrDash(item.observed_at))}<br><span class="badge ${item.date_quality === "needs_review" || item.date_quality === "missing" ? "amber" : "green"}">${esc(displayOrDash(item.date_quality))}</span></td>
+            <td>${esc(displayOrDash(observationDimensions(item)))}</td>
+            <td>${esc(displayOrDash(observationSource(item)))}</td>
+            <td><span class="badge ${tone === "red" ? "red" : tone === "amber" ? "amber" : "green"}">${esc(status)}</span></td>
+            <td>
+              <div class="toolbar">
+                <button class="btn" data-observation-row-action="edit" data-row-id="${esc(item.id || "")}">Edit</button>
+                <button class="btn" data-observation-row-action="accept" data-row-id="${esc(item.id || "")}" ${rowLocked ? "disabled" : ""}>Accept</button>
+                <button class="btn danger" data-observation-row-action="reject" data-row-id="${esc(item.id || "")}" ${rowLocked ? "disabled" : ""}>Reject</button>
+              </div>
+            </td>
+          </tr>
+        `;
+      }).join("") : `<tr><td colspan="11">No rows for this filter. Load candidate rows after upload.</td></tr>`;
+    }
+
+    function renderObservationCommitSummary() {
+      const summary = state.observationCommitSummary;
+      if (!summary) {
+        el("observationCommitSummary").innerHTML = "";
+        return;
+      }
+      el("observationCommitSummary").innerHTML = `
+        <div class="signal">
+          <span class="dot ${summary.skipped_quarantined_count ? "warn" : "good"}"></span>
+          <div>
+            <strong>Last commit processed the full batch</strong>
+            <span>${esc(summary.inserted_count || 0)} inserted | ${esc(summary.duplicate_count || 0)} duplicates skipped | ${esc(summary.reviewed_active_count || 0)} active reviewed | ${esc(summary.reviewed_needs_review_count || 0)} needs-review reviewed | ${esc(summary.skipped_quarantined_count || 0)} quarantined skipped | ${esc(summary.skipped_rejected_count || 0)} rejected skipped</span>
+          </div>
+        </div>
+      `;
+    }
+
+    function renderObservationsWorkspace() {
+      const batch = state.observationBatch;
+      el("observationBatchState").textContent = batch?.status || "idle";
+      el("observationBatchState").className = `badge ${batch?.status === "committed" ? "green" : batch ? "blue" : "gray"}`;
+      if (batch?.mapping && !el("observationMappingJson").value.trim()) {
+        el("observationMappingJson").value = JSON.stringify(batch.mapping, null, 2);
+      }
+      el("observationWarnings").innerHTML = batchWarnings(batch).map((warning) => `
+        <div class="signal"><span class="dot warn"></span><div><strong>${esc(warning.type || "Mapping note")}</strong><span>${esc(warning.message || warning)}</span></div></div>
+      `).join("");
+      const metadata = batch?.metadata || {};
+      const groups = metadata.candidate_groups || [];
+      el("observationGroups").innerHTML = groups.length ? groups.map((group) => `
+        <div class="signal">
+          <span class="dot good"></span>
+          <div>
+            <strong>${esc(group.label || group.group_id)}</strong>
+            <span>${esc(group.kind || "group")} | ${esc(group.row_count || 0)} rows | ${percent(group.confidence ?? 0)}</span>
+          </div>
+        </div>
+      `).join("") : "";
+      el("observationSuggestedMetrics").innerHTML = "";
+      const candidateCounts = batch?.candidate_counts || batch?.metadata?.candidate_row_counts || {};
+      el("observationSampleCount").textContent = String(state.observationSample.length || 0);
+      el("observationQuarantineCount").textContent = String(candidateCounts.quarantined ?? state.observationSample.filter((item) => item.status === "quarantined").length ?? 0);
+      const suggestedMetrics = metadata.suggested_metrics || [];
+      const needsReviewCount = candidateCounts.needs_review ?? (state.observationSample || []).filter((item) => item.status === "needs_review" || item.review_status === "needs_review" || item.date_quality === "needs_review" || item.date_quality === "missing").length;
+      el("observationSuggestedMetricCount").textContent = String(suggestedMetrics.length || 0);
+      el("observationNeedsReviewCount").textContent = String(needsReviewCount || 0);
+      const totalRows = batch?.row_count || Object.values(candidateCounts).reduce((sum, value) => sum + Number(value || 0), 0) || state.observationSample.length || 0;
+      el("observationSampleScope").textContent = batch
+        ? `Showing ${state.observationSample.length} persisted candidate rows from ${totalRows} source rows. Commit reads these candidate rows, not a re-derived sample.`
+        : "Upload a source and load candidate rows to review extracted rows.";
+      renderObservationReadiness(batch);
+      renderObservationCommitSummary();
+      renderMetricUsage(batch);
+      renderObservationReviewMatrix(batch);
+      renderObservationGroupEditor(batch);
+      renderObservationRowEditor();
+      el("observationRows").innerHTML = state.observations.length ? state.observations.map((item) => `
+        <tr>
+          <td>${esc(item.observation_kind || "metric_observation")}</td>
+          <td><strong>${esc(item.semantic_role || item.metric || "")}</strong><br><span>${esc(item.metric || "")}</span></td>
+          <td>${esc(item.mpn || item.subject || "")}</td>
+          <td>${esc(item.supplier || item.manufacturer || "")}</td>
+          <td>${esc(item.value_numeric ?? "")} ${esc(item.unit || item.currency || "")}</td>
+          <td>${esc(item.observed_at || "")}</td>
+          <td><span class="badge ${item.review_status === "needs_review" ? "amber" : "green"}">${esc(item.review_status || "accepted")}</span></td>
+          <td><code>${esc(shortHash(item.source_row_hash))}</code></td>
+        </tr>
+      `).join("") : `<tr><td colspan="8">No committed observations loaded.</td></tr>`;
+    }
+
+    async function uploadObservations() {
+      const selectedFile = el("observationFile")?.files?.[0] || null;
+      if (!selectedFile) {
+        setStatus("Choose an observation CSV first.");
+        return;
+      }
+      const form = new FormData();
+      form.append("file", selectedFile);
+      const filename = el("observationFilename").value.trim() || selectedFile.name;
+      if (filename) form.append("source_filename", filename);
+      const receivedAt = el("observationReceivedAt").value;
+      const sourceOwner = el("observationSourceOwner").value.trim();
+      const sourceType = el("observationSourceType").value.trim();
+      const notes = el("observationNotes").value.trim();
+      if (receivedAt) form.append("received_at", receivedAt);
+      if (sourceOwner) form.append("source_owner", sourceOwner);
+      if (sourceType) form.append("source_type", sourceType);
+      if (notes) form.append("notes", notes);
+      const url = `${apiBase()}/observations/upload`;
+      setStatus("Uploading observation source...");
+      try {
+        const payload = await fetchJson(url, { method: "POST", body: form });
+        state.observationBatch = payload;
+        state.observationSample = [];
+        state.activeObservationRowId = null;
+        state.observationCommitSummary = null;
+        el("observationMappingJson").value = JSON.stringify(payload.mapping || {}, null, 2);
+        setLastResponse("uploadObservations response", payload);
+        renderObservationsWorkspace();
+        setStatus(`Observation batch uploaded: ${payload.row_count || 0} rows.`);
+      } catch (error) {
+        debugLog("uploadObservations error", error);
+        setStatus(`Could not upload observations: ${error.message}.`);
+      }
+    }
+
+    async function approveObservationMapping() {
+      const batch = state.observationBatch;
+      if (!batch?.id) {
+        setStatus("Upload an observation batch first.");
+        return;
+      }
+      let mapping;
+      try {
+        mapping = parseJsonField("observationMappingJson", {});
+      } catch (error) {
+        setStatus(`Invalid mapping JSON: ${error.message}.`);
+        return;
+      }
+      const url = `${apiBase()}/observations/batches/${encodeURIComponent(batch.id)}/mapping`;
+      try {
+        const payload = await fetchJson(url, { method: "POST", body: JSON.stringify({ mapping }) });
+        state.observationBatch = payload;
+        setLastResponse("approveObservationMapping response", payload);
+        renderObservationsWorkspace();
+        setStatus("Observation mapping approved.");
+      } catch (error) {
+        debugLog("approveObservationMapping error", error);
+        setStatus(`Could not approve mapping: ${error.message}.`);
+      }
+    }
+
+    async function loadObservationRows() {
+      const batch = state.observationBatch;
+      if (!batch?.id) {
+        setStatus("Upload an observation batch first.");
+        return;
+      }
+      const url = `${apiBase()}/observations/batches/${encodeURIComponent(batch.id)}/rows?limit=500`;
+      try {
+        const payload = await fetchJson(url);
+        state.observationBatch = payload.batch || batch;
+        state.observationBatch.candidate_counts = payload.counts || state.observationBatch.candidate_counts || {};
+        state.observationSample = payload.items || [];
+        setLastResponse("loadObservationRows response", payload);
+        renderObservationsWorkspace();
+        setStatus(`Loaded ${state.observationSample.length} candidate rows.`);
+      } catch (error) {
+        debugLog("loadObservationRows error", error);
+        setStatus(`Could not load candidate rows: ${error.message}.`);
+      }
+    }
+
+    async function commitObservations() {
+      const batch = state.observationBatch;
+      if (!batch?.id) {
+        setStatus("Upload an observation batch first.");
+        return;
+      }
+      const url = `${apiBase()}/observations/batches/${encodeURIComponent(batch.id)}/commit`;
+      try {
+        const payload = await fetchJson(url, { method: "POST", body: JSON.stringify({ reviewed_by: "prototype_user" }) });
+        state.observationBatch = payload.batch || batch;
+        state.observationCommitSummary = {
+          inserted_count: payload.inserted_count || 0,
+          duplicate_count: payload.duplicate_count || 0,
+          reviewed_active_count: payload.reviewed_active_count || 0,
+          reviewed_needs_review_count: payload.reviewed_needs_review_count || 0,
+          skipped_quarantined_count: payload.skipped_quarantined_count || 0,
+          skipped_rejected_count: payload.skipped_rejected_count || 0,
+        };
+        setLastResponse("commitObservations response", payload);
+        await loadObservations();
+        setStatus(`Committed ${payload.inserted_count || 0} observations. Duplicates skipped: ${payload.duplicate_count || 0}.`);
+      } catch (error) {
+        debugLog("commitObservations error", error);
+        setStatus(`Could not commit observations: ${error.message}.`);
+      }
+    }
+
+    async function loadObservations() {
+      const url = `${apiBase()}/observations?limit=100`;
+      try {
+        const payload = await fetchJson(url);
+        state.observations = payload.items || [];
+        setLastResponse("loadObservations response", payload);
+        renderObservationsWorkspace();
+      } catch (error) {
+        debugLog("loadObservations error", error);
+        setStatus(`Could not load observations: ${error.message}.`);
+      }
+    }
+
+    async function reviewSuggestedMetric(metricKey, action) {
+      const batch = state.observationBatch;
+      if (!batch?.id) {
+        setStatus("Upload an observation batch first.");
+        return;
+      }
+      let body = { reviewed_by: "prototype_user" };
+      if (action === "map") {
+        const select = document.querySelector(`[data-map-target="${CSS.escape(metricKey)}"]`);
+        const target = select?.value;
+        if (!target) {
+          setStatus("Select an existing metric to map to.");
+          return;
+        }
+        body = { target_metric_key: target, reviewed_by: "prototype_user" };
+      }
+      const url = `${apiBase()}/observations/batches/${encodeURIComponent(batch.id)}/metrics/${encodeURIComponent(metricKey)}/${action}`;
+      try {
+        const payload = await fetchJson(url, { method: "POST", body: JSON.stringify(body) });
+        state.observationBatch = payload;
+        setLastResponse(`suggestedMetric ${action} response`, payload);
+        await loadObservationRows();
+        renderObservationsWorkspace();
+        setStatus(`Suggested metric ${metricKey} ${action}d.`);
+      } catch (error) {
+        debugLog("reviewSuggestedMetric error", error);
+        setStatus(`Could not ${action} suggested metric: ${error.message}.`);
+      }
+    }
+
+    async function updateObservationRow(rowId, action) {
+      const batch = state.observationBatch;
+      if (!batch?.id || !rowId) {
+        setStatus("Select a candidate row first.");
+        return;
+      }
+      if (action === "edit") {
+        state.activeObservationRowId = rowId;
+        renderObservationsWorkspace();
+        return;
+      }
+      if (action === "close") {
+        state.activeObservationRowId = null;
+        renderObservationsWorkspace();
+        return;
+      }
+      const url = `${apiBase()}/observations/batches/${encodeURIComponent(batch.id)}/rows/${encodeURIComponent(rowId)}/${action}`;
+      try {
+        const payload = await fetchJson(url, { method: "POST" });
+        setLastResponse(`candidate row ${action} response`, payload);
+        await loadObservationRows();
+        state.activeObservationRowId = payload.id;
+        setStatus(`Candidate row ${action}ed.`);
+      } catch (error) {
+        debugLog("updateObservationRow error", error);
+        setStatus(`Could not ${action} candidate row: ${error.message}.`);
+      }
+    }
+
+    async function saveObservationRow() {
+      const row = activeObservationRow();
+      const batch = state.observationBatch;
+      if (!row?.id || !batch?.id) {
+        setStatus("Select a candidate row first.");
+        return;
+      }
+      let dimensions;
+      try {
+        dimensions = readJsonInput("obsEditDimensions", {});
+      } catch (error) {
+        setStatus(`Invalid dimensions JSON: ${error.message}.`);
+        return;
+      }
+      const numericRaw = el("obsEditValueNumeric").value.trim();
+      const body = {
+        subject_type: el("obsEditSubjectType").value.trim() || null,
+        subject: el("obsEditSubject").value.trim() || null,
+        mpn: el("obsEditMpn").value.trim() || null,
+        observation_kind: el("obsEditKind").value || "metric_observation",
+        semantic_role: el("obsEditRole").value.trim() || null,
+        metric_key: el("obsEditMetric").value,
+        value_numeric: numericRaw === "" ? null : Number(numericRaw),
+        value_text: el("obsEditValueText").value.trim() || null,
+        unit: el("obsEditUnit").value.trim() || null,
+        currency: el("obsEditCurrency").value.trim() || null,
+        observed_at: el("obsEditObservedAt").value || null,
+        dimensions,
+        source_excerpt: el("obsEditSourceExcerpt").value.trim() || null,
+      };
+      const url = `${apiBase()}/observations/batches/${encodeURIComponent(batch.id)}/rows/${encodeURIComponent(row.id)}`;
+      try {
+        const payload = await fetchJson(url, { method: "PATCH", body: JSON.stringify(body) });
+        setLastResponse("saveObservationRow response", payload);
+        await loadObservationRows();
+        state.activeObservationRowId = payload.id;
+        setStatus("Candidate row saved and revalidated.");
+      } catch (error) {
+        debugLog("saveObservationRow error", error);
+        setStatus(`Could not save candidate row: ${error.message}.`);
+      }
+    }
+
+    async function applyObservationGroupEdit() {
+      const batch = state.observationBatch;
+      if (!batch?.id) {
+        setStatus("Upload an observation batch first.");
+        return;
+      }
+      const groupId = el("observationGroupEditId")?.value;
+      if (!groupId) {
+        setStatus("Select a group first.");
+        return;
+      }
+      const body = {};
+      const metricKey = el("observationGroupMetric")?.value;
+      const observationKind = el("observationGroupKind")?.value;
+      const semanticRole = el("observationGroupRole")?.value?.trim();
+      const currency = el("observationGroupCurrency")?.value?.trim();
+      const observedAt = el("observationGroupObservedAt")?.value;
+      if (observationKind) body.observation_kind = observationKind;
+      if (semanticRole) body.semantic_role = semanticRole;
+      if (metricKey) body.metric_key = metricKey;
+      if (currency) body.currency = currency;
+      if (observedAt) body.observed_at = observedAt;
+      if (!Object.keys(body).length) {
+        setStatus("Set at least one group edit field.");
+        return;
+      }
+      const url = `${apiBase()}/observations/batches/${encodeURIComponent(batch.id)}/groups/${encodeURIComponent(groupId)}`;
+      try {
+        const payload = await fetchJson(url, { method: "PATCH", body: JSON.stringify(body) });
+        setLastResponse("applyObservationGroupEdit response", payload);
+        await loadObservationRows();
+        setStatus(`Group ${groupId} updated.`);
+      } catch (error) {
+        debugLog("applyObservationGroupEdit error", error);
+        setStatus(`Could not update group: ${error.message}.`);
+      }
+    }
+
+    function renderInspector() {
+      const facts = state.facts || [];
+      el("factRows").innerHTML = facts.length ? facts.map((fact) => `
+        <div class="candidate">
+          <div class="candidate-head">
+            <h3>${esc(fact.label || fact.predicate || fact.stable_key)}</h3>
+            <span class="badge ${fact.severity === "blocking" ? "red" : fact.severity === "warning" ? "amber" : "blue"}">${esc(fact.axis || "fact")}</span>
+          </div>
+          <p><strong>${esc(fact.subject_type)}</strong> ${esc(fact.subject)} | ${esc(fact.predicate)}</p>
+          <p>${esc(factValueSummary(fact.value))}</p>
+          <div class="badge-row">
+            <span class="badge">${esc(fact.scope)} ${esc(fact.scope_id || "global")}</span>
+            <span class="badge">${esc(fact.fact_class || "primary")}</span>
+            <span class="badge">${percent(fact.confidence ?? 0)}</span>
+          </div>
+          <pre class="json-box">${esc(JSON.stringify({ id: fact.id, source: fact.source, stable_key: fact.stable_key }, null, 2))}</pre>
+        </div>
+      `).join("") : `<div class="signal"><span class="dot warn"></span><div><strong>No facts loaded</strong><span>Select a design, then load the inspector.</span></div></div>`;
+    }
+
+    async function loadInspector() {
+      const designId = selectedDesignId();
+      if (!designId) {
+        setLastResponse("loadInspector skipped", {
+          reason: "no_design_selected",
+          action: "Select a value in the Session / Design dropdown, then click Load inspector again.",
+        });
+        setStatus("Select a design first.");
+        return;
+      }
+      const factsUrl = `${apiBase()}/designs/${encodeURIComponent(designId)}/facts?scope_resolved=true`;
+      setStatus("Loading scope-resolved facts...");
+      try {
+        const [factsPayload, observationsPayload] = await Promise.all([
+          fetchJson(factsUrl),
+          fetchJson(`${apiBase()}/observations?limit=100`).catch((error) => ({ items: [], error: error.message })),
+        ]);
+        state.facts = factsPayload.items || [];
+        state.observations = observationsPayload.items || state.observations || [];
+        setLastResponse("loadInspector response", { facts: factsPayload, observations: observationsPayload });
+        renderInspector();
+        renderObservationsWorkspace();
+        setStatus(`Loaded ${state.facts.length} scope-resolved facts.`);
+      } catch (error) {
+        debugLog("loadInspector error", error);
+        setStatus(`Could not load inspector: ${error.message}.`);
+      }
+    }
+
+    function factValueSummary(value) {
+      if (value === null || value === undefined) return "No structured value";
+      if (typeof value !== "object") return String(value);
+      const entries = Object.entries(value).filter(([, item]) => item !== null && item !== undefined && item !== "");
+      if (!entries.length) return "No structured value";
+      return entries.map(([key, item]) => `${key}: ${typeof item === "object" ? JSON.stringify(item) : item}`).join(" | ");
+    }
+
+    function factVerifierWarnings(item) {
+      const ambiguity = item.ambiguity || {};
+      const errors = Array.isArray(ambiguity.verifier_errors) ? ambiguity.verifier_errors : [];
+      const otherKeys = Object.keys(ambiguity).filter((key) => key !== "verifier_errors");
+      const notes = otherKeys.map((key) => `${key}: ${typeof ambiguity[key] === "object" ? JSON.stringify(ambiguity[key]) : ambiguity[key]}`);
+      return [...errors.map((error) => `Verifier: ${error}`), ...notes];
+    }
+
+    function renderManifestWorkspace() {
+      const manifest = state.activeManifest;
+      el("manifestList").innerHTML = state.manifests.length ? state.manifests.map((item) => `
+        <button class="candidate ${manifest?.id === item.id ? "active" : ""}" data-manifest="${esc(item.id)}">
+          <div class="candidate-head">
+            <h3>${esc(item.name || item.source_filename || item.manifest_type || "manifest")} v${esc(item.version || 1)}</h3>
+            <span class="badge ${item.status === "active" ? "green" : "gray"}">${esc(item.status)}</span>
+          </div>
+          <p>${esc(item.manifest_type || "generic")} · ${esc(item.scope)} ${esc(item.scope_id || "global")}</p>
+        </button>
+      `).join("") : `<div class="signal"><span class="dot warn"></span><div><strong>No manifests yet</strong><span>Extract one to begin.</span></div></div>`;
+
+      el("manifestErrors").innerHTML = (manifest?.extraction_errors || []).length ? manifest.extraction_errors.map((error) => `
+        <div class="signal"><span class="dot warn"></span><div><strong>${esc(error.type || "warning")}</strong><span>${esc(error.message || JSON.stringify(error))}</span></div></div>
+      `).join("") : "";
+
+      el("manifestMetadata").innerHTML = manifest ? `
+        <div class="field">
+          <label for="manifestDetectedName">Manifest name</label>
+          <input id="manifestDetectedName" value="${esc(manifest.name || manifest.source_filename || "")}" />
+        </div>
+        <div class="field">
+          <label for="manifestDetectedType">Category</label>
+          <input id="manifestDetectedType" value="${esc(manifest.manifest_type || "generic")}" />
+        </div>
+        <div class="toolbar">
+          <button class="btn" id="saveManifestMetadata">Save metadata</button>
+        </div>
+      ` : "";
+
+      const candidates = manifest?.candidates || [];
+      el("manifestCandidateRows").innerHTML = candidates.length ? candidates.map((item) => `
+        <tr>
+          <td><span class="badge ${item.review_status === "rejected" ? "red" : item.review_status === "pending" ? "amber" : "green"}">${esc(item.review_status)}</span></td>
+          <td>
+            <span class="badge">${esc(item.subject_type)}</span><br>
+            <strong>${esc(item.subject)}</strong><br>
+            <span>${esc(item.label || "")}</span>
+            ${factVerifierWarnings(item).length ? `<br><span class="badge amber">needs review</span>` : ""}
+          </td>
+          <td>${esc(item.predicate)}<br><span class="badge">${esc(item.axis)}</span></td>
+          <td>
+            <strong>${esc(factValueSummary(item.value))}</strong>
+            <details>
+              <summary>Raw value</summary>
+              <pre class="json-box">${esc(JSON.stringify(item.value, null, 2))}</pre>
+            </details>
+          </td>
+          <td><span class="badge ${item.severity === "blocking" || item.severity === "conflict" ? "red" : item.severity === "warning" ? "amber" : "gray"}">${esc(item.severity || "none")}</span></td>
+          <td>
+            <span>${esc(item.source_excerpt || item.source_row || "No source excerpt")}</span>
+            ${item.source_page ? `<br><span class="badge">page ${esc(item.source_page)}</span>` : ""}
+            ${factVerifierWarnings(item).length ? `<details><summary>Review notes</summary><ul>${factVerifierWarnings(item).map((note) => `<li>${esc(note)}</li>`).join("")}</ul></details>` : ""}
+          </td>
+          <td>${esc(percent(item.confidence))}</td>
+          <td>
+            <div class="toolbar">
+              <button class="btn" data-candidate-action="accept" data-candidate-id="${esc(item.id)}">Accept</button>
+              <button class="btn" data-candidate-action="edit" data-candidate-id="${esc(item.id)}">Edit</button>
+              <button class="btn danger" data-candidate-action="reject" data-candidate-id="${esc(item.id)}">Reject</button>
+            </div>
+          </td>
+        </tr>
+      `).join("") : `<tr><td colspan="8">No candidate facts selected.</td></tr>`;
+
+      const pending = candidates.filter((item) => item.review_status === "pending").length;
+      el("commitManifest").disabled = !manifest || manifest.status === "active" || pending > 0;
+      el("manifestState").textContent = manifest ? manifest.status : "idle";
+      el("manifestState").className = `badge ${manifest?.status === "active" ? "green" : manifest ? "blue" : "gray"}`;
+      el("saveManifestMetadata")?.addEventListener("click", saveManifestMetadata);
+    }
+
+
+    function renderEmpty() {
+      el("subsystemName").textContent = "Load a subsystem optimizer context";
+      el("subsystemDescription").textContent = "Enter API base, design ID, and subsystem ID, then load from the backend.";
+      el("subsystemBadges").innerHTML = "";
+      el("metricGrid").innerHTML = [
+        ["Parts", 0],
+        ["Connections", 0],
+        ["Requirements", 0],
+        ["Sub Req", 0]
+      ].map(([label, value]) => `<div class="metric"><strong>${esc(value)}</strong><span>${esc(label)}</span></div>`).join("");
+      el("subsystemSummary").innerHTML = `
+        <div class="signal">
+          <span class="dot warn"></span>
+          <div>
+            <strong>No backend context loaded</strong>
+            <span>This prototype only renders backend-loaded context.</span>
+          </div>
+        </div>
+      `;
+      el("partList").innerHTML = "";
+      el("qualityList").innerHTML = "";
+      el("mapNodes").innerHTML = "";
+      el("mapLines").innerHTML = "";
+      el("focusTitle").textContent = "Focus";
+      el("focusDescription").textContent = "Load backend context before choosing a focus part.";
+      el("focusBadges").innerHTML = "";
+      el("focusPartSelect").innerHTML = `<option value="">Load context first</option>`;
+      el("focusPartSelect").disabled = true;
+      renderModes();
+      renderOpportunities();
+      renderCandidates();
+      renderImpact();
+      el("constraintRows").innerHTML = "";
+      el("rawContext").textContent = "";
+    }
+
+    function render() {
+      if (!state.context) {
+        renderEmpty();
+        return;
+      }
+      const context = state.context;
+      const subsystem = context.subsystem;
+      const part = activePart();
+
+      el("subsystemName").textContent = `${subsystem.subsystem_key || "SUB"} ${subsystem.name || "Subsystem"}`;
+      el("subsystemDescription").textContent = subsystem.description || "No subsystem description available.";
+      el("subsystemBadges").innerHTML = [
+        subsystem.type,
+        subsystem.status,
+        subsystem.confidence != null ? `${percent(subsystem.confidence)} confidence` : null,
+        `${context.parts.length} parts`,
+        `${context.interfaces.length} interfaces`
+      ].filter(Boolean).map((item) => `<span class="badge">${esc(item)}</span>`).join("");
+
+      el("metricGrid").innerHTML = [
+        ["Parts", context.parts.length],
+        ["Connections", context.connections.length],
+        ["Requirements", context.requirements.length],
+        ["Sub Req", context.subsystem_requirements.length]
+      ].map(([label, value]) => `<div class="metric"><strong>${esc(value)}</strong><span>${esc(label)}</span></div>`).join("");
+
+      el("subsystemSummary").innerHTML = `
+        <div class="item active">
+          <strong>${esc(subsystem.subsystem_key || "")} ${esc(subsystem.name || "")}</strong>
+          <small>${esc(subsystem.description || "")}</small>
+          <div class="badge-row">
+            <span class="badge green">${esc(subsystem.status || "unknown")}</span>
+            <span class="badge">${esc(subsystem.type || "unknown")}</span>
+          </div>
+        </div>
+      `;
+
+      el("partList").innerHTML = context.parts.map((item) => `
+        <button class="item ${item.design_part_id === state.selectedPartId ? "active" : ""}" data-part="${esc(item.design_part_id)}">
+          <strong>${esc(item.mpn || item.part_number || item.design_part_id)}</strong>
+          <small>${esc(item.role || item.classification || "No role yet")}</small>
+          <div class="badge-row">
+            <span class="badge gray">${esc((item.reference_designators || []).join(", ") || "no refdes")}</span>
+            <span class="badge ${item.replaceability === "not_focus" ? "gray" : "amber"}">${esc(item.replaceability || "review")}</span>
+          </div>
+        </button>
+      `).join("");
+      setSelectOptions(
+        el("focusPartSelect"),
+        context.parts,
+        (item) => item.design_part_id,
+        partLabel,
+        "Select focus part",
+        state.selectedPartId
+      );
+      el("focusPartSelect").disabled = context.parts.length === 0;
+
+      el("qualityList").innerHTML = context.missing_data.length
+        ? context.missing_data.map((item) => `
+          <div class="signal">
+            <span class="dot ${item.severity === "blocking" ? "bad" : "warn"}"></span>
+            <div>
+              <strong>${esc(item.type)}</strong>
+              <span>${esc(item.label)}</span>
+            </div>
+          </div>
+        `).join("")
+        : `<div class="signal"><span class="dot good"></span><div><strong>Ready</strong><span>No context gaps reported.</span></div></div>`;
+
+      renderMap();
+      renderModes();
+      renderOpportunities();
+      renderFocus(part);
+      renderConstraints(part);
+      renderCandidates();
+      renderImpact();
+      el("rawContext").textContent = JSON.stringify({
+        active_run: state.activeRun,
+        opportunities: state.opportunities,
+        discovery_brief: state.discoveryBrief,
+        context
+      }, null, 2);
+    }
+
+    function renderMap() {
+      const context = state.context;
+      const positions = [
+        [54, 54], [315, 62], [575, 86], [160, 236], [475, 250], [710, 210]
+      ];
+      const nodes = context.parts.map((part, index) => {
+        const [left, top] = positions[index % positions.length];
+        return { ...part, left, top };
+      });
+      const byId = new Map(nodes.map((node) => [node.design_part_id, node]));
+
+      el("mapNodes").innerHTML = nodes.map((part) => `
+        <div class="part-node ${part.design_part_id === state.selectedPartId ? "focus" : ""}" style="left:${part.left}px;top:${part.top}px">
+          <button data-part="${esc(part.design_part_id)}">
+            <strong>${esc(part.mpn || part.part_number || part.design_part_id)}</strong>
+            <span>${esc(part.role || part.classification || "")}</span>
+            <span>${esc((part.reference_designators || []).join(", "))}</span>
+          </button>
+        </div>
+      `).join("");
+
+      const lines = context.connections.map((connection) => {
+        const source = byId.get(connection.source_part_id);
+        const target = byId.get(connection.target_part_id);
+        if (!source || !target) return "";
+        const x1 = source.left + 86;
+        const y1 = source.top + 43;
+        const x2 = target.left + 86;
+        const y2 = target.top + 43;
+        const color = connection.connection_type === "power" ? "#ef4444" : connection.connection_type === "analog" ? "#7c3aed" : "#f59e0b";
+        return `
+          <line x1="${x1}" y1="${y1}" x2="${x2}" y2="${y2}" stroke="${color}" stroke-width="2.5" opacity="0.9" />
+          <text x="${(x1 + x2) / 2}" y="${(y1 + y2) / 2 - 6}" font-size="10" fill="#475569">${esc(connection.net_name || connection.connection_type || "net")}</text>
+        `;
+      }).join("");
+      el("mapLines").innerHTML = lines;
+    }
+
+    function renderModes() {
+      el("modeGrid").innerHTML = modes.map((mode) => `
+        <button class="mode ${mode.id === state.selectedMode ? "active" : ""}" data-mode="${mode.id}">
+          <strong>${esc(mode.title)}</strong>
+          <span>${esc(mode.text)}</span>
+        </button>
+      `).join("");
+    }
+
+    function renderOpportunities() {
+      const box = el("opportunityList");
+      if (!box) return;
+      if (!state.opportunities.length) {
+        box.innerHTML = `
+          <div class="signal">
+            <span class="dot warn"></span>
+            <div>
+              <strong>No opportunities discovered</strong>
+              <span>Start a run, then click Discover opportunities.</span>
+            </div>
+          </div>
+        `;
+        return;
+      }
+      box.innerHTML = state.opportunities.map((opportunity) => {
+        const selected = opportunity.id === state.selectedOpportunityId;
+        const flagged = opportunity.status === "flagged" || opportunity.validation_errors.length > 0;
+        return `
+          <div class="candidate ${selected ? "active" : ""}">
+            <div class="candidate-head">
+              <h3>${esc(opportunity.title)}</h3>
+              <span class="badge ${opportunity.status === "accepted" ? "green" : flagged ? "amber" : "blue"}">${esc(opportunity.status)}</span>
+            </div>
+            ${flagged ? `<div class="badge amber">Contains hypothesis requiring review</div>` : ""}
+            <p>${esc(opportunity.hypothesis)}</p>
+            <div class="badge-row">
+              <span class="badge">${esc(opportunity.opportunity_type)}</span>
+              <span class="badge">${esc(opportunity.axis)}</span>
+              <span class="badge green">${percent(opportunity.priority_score)} priority</span>
+              <span class="badge">${percent(opportunity.confidence)} confidence</span>
+            </div>
+            <div class="mini-list">
+              ${opportunity.evidence.slice(0, 4).map((fact) => `<span>${esc(fact.label || fact.fact_id)}</span>`).join("")}
+              ${opportunity.unknowns.slice(0, 3).map((item) => `<span>Unknown: ${esc(item)}</span>`).join("")}
+              ${opportunity.recommended_next_steps.slice(0, 4).map((item) => `<span>Next: ${esc(item)}</span>`).join("")}
+            </div>
+            <div class="mini-list" style="margin-top:10px">
+              ${opportunity.approaches.length ? opportunity.approaches.map((approach) => {
+                const approachSelected = approach.id === state.selectedApproachId;
+                const directives = approach.search_directives || {};
+                const improve = directives.improve ? Object.keys(directives.improve).filter((key) => (directives.improve[key] || []).length).join(", ") : "";
+                return `
+                  <button class="candidate ${approachSelected ? "active" : ""}" data-select-approach="${esc(approach.id)}" data-opportunity="${esc(opportunity.id)}" style="text-align:left">
+                    <div class="candidate-head">
+                      <h3>${esc(approach.title)}</h3>
+                      <span class="badge ${approachSelected ? "green" : "gray"}">${esc(approach.status)}</span>
+                    </div>
+                    <p>${esc(approach.rationale)}</p>
+                    <div class="badge-row">
+                      <span class="badge">${esc(approach.strategy)}</span>
+                      <span class="badge">${percent(approach.confidence)} confidence</span>
+                      ${improve ? `<span class="badge amber">Improve: ${esc(improve)}</span>` : ""}
+                    </div>
+                  </button>
+                `;
+              }).join("") : `
+                <span>No valid approaches returned for this opportunity.</span>
+              `}
+            </div>
+            <div class="toolbar" style="margin-top:10px">
+              <button class="btn" data-dismiss-opportunity="${esc(opportunity.id)}">Dismiss</button>
+              <button class="btn" data-raw-opportunity="${esc(opportunity.id)}">Raw JSON</button>
+            </div>
+          </div>
+        `;
+      }).join("");
+    }
+
+    function renderFocus(part) {
+      if (!part) return;
+      el("focusTitle").textContent = `Focused part: ${part.mpn || part.part_number || part.design_part_id}`;
+      el("focusDescription").textContent = `${part.role || "No role"} / ${part.manufacturer || "Unknown manufacturer"}`;
+      el("focusBadges").innerHTML = [
+        part.classification,
+        part.replaceability,
+        `${part.quantity || 1} qty`,
+        (part.reference_designators || []).join(", ")
+      ].filter(Boolean).map((item) => `<span class="badge">${esc(item)}</span>`).join("");
+    }
+
+    function renderConstraints(part) {
+      const context = state.context;
+      const rows = [
+        ...context.requirements.map((req) => ["Design req", `${req.key || req.requirement_id} ${req.title || ""}`, req.status || "unknown"]),
+        ...context.subsystem_requirements.map((req) => ["Sub req", `${req.key || req.subsystem_requirement_id} ${req.title || ""}`, req.is_stale ? "stale" : (req.status || "unknown")]),
+        ...context.interfaces.map((item) => ["Interface", `${item.name || item.interface_id} ${item.interface_type || ""}`, item.stale ? "stale" : (item.status || "unknown")])
+      ];
+      el("constraintRows").innerHTML = rows.map(([type, name, status]) => `
+        <tr>
+          <td>${esc(type)}</td>
+          <td>${esc(name)}</td>
+          <td><span class="badge ${status === "stale" ? "amber" : "gray"}">${esc(status)}</span></td>
+        </tr>
+      `).join("");
+    }
+
+    function renderCandidates() {
+      if (!state.candidates.length) {
+        el("candidateList").innerHTML = `
+          <div class="signal">
+            <span class="dot warn"></span>
+            <div>
+              <strong>No candidates generated</strong>
+              <span>Select an opportunity approach, then click Discover alternatives to prepare the candidate search brief.</span>
+            </div>
+          </div>
+        `;
+        return;
+      }
+      const sorted = [...state.candidates].sort((a, b) => {
+        if (state.rankBy === "cost") return (b.scores.cost || 0) - (a.scores.cost || 0);
+        if (state.rankBy === "risk") return (b.scores.blast_radius || 0) - (a.scores.blast_radius || 0);
+        return b.overall - a.overall;
+      });
+      el("candidateList").innerHTML = sorted.map((candidate) => `
+        <button class="candidate ${candidate.id === state.selectedCandidateId ? "active" : ""}" data-candidate="${esc(candidate.id)}">
+          <div class="candidate-head">
+            <h3>${esc(candidate.title)}</h3>
+            <span class="badge ${candidate.risk === "High" ? "red" : candidate.risk === "Medium" ? "amber" : "green"}">${esc(candidate.risk)}</span>
+          </div>
+          <p>${esc(candidate.summary)}</p>
+          <div class="badge-row">
+            <span class="badge">${esc(candidate.decision)}</span>
+            <span class="badge green">${esc(candidate.overall)} overall</span>
+          </div>
+        </button>
+      `).join("");
+    }
+
+    function renderImpact() {
+      const candidate = activeCandidate();
+      if (!candidate) {
+        el("scoreGrid").innerHTML = `<div class="signal"><span class="dot warn"></span><div><strong>No candidate selected</strong><span>Generate or select a candidate.</span></div></div>`;
+        el("signalList").innerHTML = "";
+        el("blastList").innerHTML = "";
+        return;
+      }
+      el("scoreGrid").innerHTML = Object.entries(candidate.scores).map(([label, value]) => `
+        <div class="score">
+          <span>${esc(label.replace("_", " "))}</span>
+          <strong>${esc(value)}</strong>
+        </div>
+      `).join("");
+      el("signalList").innerHTML = candidate.signals.map(([tone, title, text]) => `
+        <div class="signal">
+          <span class="dot ${tone}"></span>
+          <div><strong>${esc(title)}</strong><span>${esc(text)}</span></div>
+        </div>
+      `).join("");
+      el("blastList").innerHTML = candidate.blast.map(([title, text]) => `
+        <div class="signal">
+          <span class="dot warn"></span>
+          <div><strong>${esc(title)}</strong><span>${esc(text)}</span></div>
+        </div>
+      `).join("");
+    }
+
+    document.addEventListener("click", (event) => {
+      const modeSwitch = event.target.closest("[data-app-mode]");
+      if (modeSwitch) {
+        setAppMode(modeSwitch.dataset.appMode);
+        return;
+      }
+
+      const manifestButton = event.target.closest("[data-manifest]");
+      if (manifestButton) {
+        loadManifest(manifestButton.dataset.manifest).catch((error) => setStatus(`Could not load manifest: ${error.message}.`));
+        return;
+      }
+
+      const metricButton = event.target.closest("[data-metric]");
+      if (metricButton) {
+        selectMetric(metricButton.dataset.metric);
+        return;
+      }
+
+      const suggestedMetricAction = event.target.closest("[data-suggested-metric-action]");
+      if (suggestedMetricAction) {
+        reviewSuggestedMetric(
+          suggestedMetricAction.dataset.suggestedMetric,
+          suggestedMetricAction.dataset.suggestedMetricAction,
+        );
+        return;
+      }
+
+      const observationFilter = event.target.closest("[data-observation-filter]");
+      if (observationFilter) {
+        state.observationFilter = observationFilter.dataset.observationFilter;
+        document.querySelectorAll("[data-observation-filter]").forEach((button) => {
+          button.classList.toggle("active", button === observationFilter);
+        });
+        renderObservationsWorkspace();
+        return;
+      }
+
+      const observationRowAction = event.target.closest("[data-observation-row-action]");
+      if (observationRowAction) {
+        updateObservationRow(
+          observationRowAction.dataset.rowId,
+          observationRowAction.dataset.observationRowAction,
+        );
+        return;
+      }
+
+      if (event.target.closest("#saveObservationRow")) {
+        saveObservationRow();
+        return;
+      }
+
+      if (event.target.closest("#applyObservationGroupEdit")) {
+        applyObservationGroupEdit();
+        return;
+      }
+
+      const candidateAction = event.target.closest("[data-candidate-action]");
+      if (candidateAction) {
+        const action = candidateAction.dataset.candidateAction;
+        const candidateId = candidateAction.dataset.candidateId;
+        if (action === "edit") {
+          editManifestCandidate(candidateId);
+        } else {
+          updateManifestCandidate(candidateId, action);
+        }
+        return;
+      }
+
+      const partButton = event.target.closest("[data-part]");
+      if (partButton) {
+        state.selectedPartId = partButton.dataset.part;
+        state.candidates = [];
+        state.selectedCandidateId = null;
+        state.opportunities = [];
+        state.selectedOpportunityId = null;
+        state.selectedApproachId = null;
+        state.discoveryBrief = null;
+        state.activeRun = null;
+        render();
+        setStatus("Focus part changed.");
+        return;
+      }
+
+      const modeButton = event.target.closest("[data-mode]");
+      if (modeButton) {
+        state.selectedMode = modeButton.dataset.mode;
+        state.candidates = [];
+        state.selectedCandidateId = null;
+        state.opportunities = [];
+        state.selectedOpportunityId = null;
+        state.selectedApproachId = null;
+        state.discoveryBrief = null;
+        state.activeRun = null;
+        render();
+        setStatus("Optimization mode changed.");
+        return;
+      }
+
+      const selectApproachButton = event.target.closest("[data-select-approach]");
+      if (selectApproachButton) {
+        selectApproach(selectApproachButton.dataset.opportunity, selectApproachButton.dataset.selectApproach);
+        return;
+      }
+
+      const dismissOpportunityButton = event.target.closest("[data-dismiss-opportunity]");
+      if (dismissOpportunityButton) {
+        dismissOpportunity(dismissOpportunityButton.dataset.dismissOpportunity);
+        return;
+      }
+
+      const rawOpportunityButton = event.target.closest("[data-raw-opportunity]");
+      if (rawOpportunityButton) {
+        const opportunity = state.opportunities.find((item) => item.id === rawOpportunityButton.dataset.rawOpportunity);
+        if (opportunity) {
+          el("rawContext").textContent = JSON.stringify(opportunity.raw || opportunity, null, 2);
+          setStatus(`Showing raw JSON for ${opportunity.title}.`);
+        }
+        return;
+      }
+
+      const candidateButton = event.target.closest("[data-candidate]");
+      if (candidateButton) {
+        state.selectedCandidateId = candidateButton.dataset.candidate;
+        renderCandidates();
+        renderImpact();
+        setStatus("Candidate selected.");
+        return;
+      }
+
+      const rankButton = event.target.closest("[data-rank]");
+      if (rankButton) {
+        state.rankBy = rankButton.dataset.rank;
+        document.querySelectorAll("[data-rank]").forEach((button) => button.classList.toggle("active", button === rankButton));
+        renderCandidates();
+      }
+    });
+
+    el("loadBackend").addEventListener("click", loadBackendContext);
+    el("refreshDesigns").addEventListener("click", loadDesigns);
+    el("designSelect").addEventListener("change", async () => {
+      state.pendingDesignId = null;
+      state.pendingSubsystemId = null;
+      state.context = null;
+      state.selectedPartId = null;
+      state.candidates = [];
+      state.selectedCandidateId = null;
+      state.opportunities = [];
+      state.selectedOpportunityId = null;
+      state.selectedApproachId = null;
+      state.discoveryBrief = null;
+      state.activeRun = null;
+      el("scopeState").textContent = "not loaded";
+      el("scopeState").className = "badge gray";
+      render();
+      await loadSubsystems(el("designSelect").value);
+    });
+    el("subsystemSelect").addEventListener("change", () => {
+      state.pendingSubsystemId = null;
+      state.context = null;
+      state.selectedPartId = null;
+      state.candidates = [];
+      state.selectedCandidateId = null;
+      state.opportunities = [];
+      state.selectedOpportunityId = null;
+      state.selectedApproachId = null;
+      state.discoveryBrief = null;
+      state.activeRun = null;
+      el("scopeState").textContent = "not loaded";
+      el("scopeState").className = "badge gray";
+      render();
+    });
+    el("focusPartSelect").addEventListener("change", () => {
+      state.selectedPartId = el("focusPartSelect").value || null;
+      state.candidates = [];
+      state.selectedCandidateId = null;
+      state.opportunities = [];
+      state.selectedOpportunityId = null;
+      state.selectedApproachId = null;
+      state.discoveryBrief = null;
+      state.activeRun = null;
+      render();
+      setStatus("Focus part changed.");
+    });
+    el("runOptimizer").addEventListener("click", runOptimizer);
+    el("discoverOpportunities").addEventListener("click", discoverOpportunities);
+    el("discoverAlternatives").addEventListener("click", discoverAlternatives);
+    el("extractManifest").addEventListener("click", extractManifest);
+    el("refreshManifests").addEventListener("click", loadManifests);
+    el("addManualFact").addEventListener("click", addManualFact);
+    el("commitManifest").addEventListener("click", commitManifest);
+    el("refreshMetrics").addEventListener("click", loadMetrics);
+    el("saveMetric").addEventListener("click", saveMetric);
+    el("uploadObservations").addEventListener("click", uploadObservations);
+    el("approveObservationMapping").addEventListener("click", approveObservationMapping);
+    el("loadObservationRows").addEventListener("click", loadObservationRows);
+    el("commitObservations").addEventListener("click", commitObservations);
+    el("refreshObservations").addEventListener("click", loadObservations);
+    el("loadInspector").addEventListener("click", loadInspector);
+    el("previewChangeSet").addEventListener("click", () => {
+      const candidate = activeCandidate();
+      alert(candidate ? `Change set preview placeholder:\n\n${candidate.title}\n\nBackend will create and validate a deterministic change set here.` : "Select a candidate first.");
+    });
+    el("rejectCandidate").addEventListener("click", () => {
+      const candidate = activeCandidate();
+      if (!candidate) return;
+      state.candidates = state.candidates.filter((item) => item.id !== candidate.id);
+      state.selectedCandidateId = state.candidates[0]?.id || null;
+      renderCandidates();
+      renderImpact();
+      setStatus("Candidate rejected in local prototype state.");
+    });
+
+    initialiseFromUrl();
+    render();
+    loadDesigns();
+    loadMetrics();
+  </script>
+</body>
+</html>

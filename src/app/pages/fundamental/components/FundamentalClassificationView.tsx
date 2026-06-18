@@ -1,4 +1,4 @@
-import React, { useState, useEffect, useRef, useMemo, useCallback } from 'react';
+import React, { useState, useEffect, useRef, useCallback } from 'react';
 import type { Component } from '@/app/types';
 import type { PartDetail } from '@/app/services/api';
 import { CheckCircle, Cpu, Zap, AlertCircle, Loader2, Search, X, ArrowRight, RotateCcw, ExternalLink, ChevronDown, RefreshCw, MessageSquare, Database } from 'lucide-react';

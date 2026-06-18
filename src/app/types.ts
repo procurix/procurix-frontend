@@ -1,7 +1,7 @@
 // Core Types for BOM Evolution Platform
 // Updated: Force rebuild
 
-export type SessionStage = 'overview' | 'upload' | 'discovery' | 'validate' | 'part-identification' | 'system-identification' | 'classification' | 'enrichment' | 'architecture' | 'requirements' | 'subsystems' | 'compliance' | 'review';
+export type SessionStage = 'overview' | 'upload' | 'discovery' | 'validate' | 'part-identification' | 'system-identification' | 'classification' | 'enrichment' | 'architecture' | 'requirements' | 'subsystems' | 'design' | 'compliance' | 'review';
 
 export type ComplianceStatus = 'compliant' | 'failed' | 'partial' | 'unknown';
 

@@ -891,22 +891,26 @@ export async function getBOMBySessionId(sessionId: string): Promise<Design> {
 
 // getAllBOMs wraps listDesigns for the library page.
 export function fsmToStage(fsm: string): number {
+    // 2026-06-12: Stage indicator collapsed again — Requirements + Architecture
+    // + Subsystems folded into a single "Design" stage. Total user-visible
+    // stages: 4 (Upload, Classification, Design, Review). Backend FSM still
+    // tracks every internal state; only the indicator collapses. Mirror of
+    // services/workflow_progress.py.
     const map: Record<string, number> = {
         empty: 1,
-        bom_uploaded: 2,
-        parts_identified: 3,
-        // Suggestions exist, but the human review gate has not been accepted yet.
-        system_analyzed: 3,
-        system_type_confirmed: 4,
-        classified: 5,
-        enriching: 5,
-        enriched: 6,
-        validated: 7,
-        requirements_generated: 8,
-        connections_built: 9,
-        subsystems_defined: 10,
-        subsystems_generated: 10,
-        complete: 10,
+        bom_uploaded: 1,
+        parts_identified: 1,
+        system_analyzed: 1,
+        system_type_confirmed: 2,
+        classified: 2,
+        enriching: 2,
+        enriched: 3,
+        validated: 3,
+        requirements_generated: 3,
+        connections_built: 3,
+        subsystems_defined: 4,
+        subsystems_generated: 4,
+        complete: 4,
     };
     return map[fsm] ?? 1;
 }

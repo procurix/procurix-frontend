@@ -14,31 +14,42 @@ export interface WorkflowStageConfig {
 
 export type WorkflowStageStatus = 'active' | 'complete' | 'available' | 'locked';
 
+// 2026-06-12: Requirements + Architecture + Subsystems consolidated into a
+// single "Design" workspace. The /design page hosts the requirements rail,
+// architecture canvas, and subsystem side panel; edits to requirements
+// auto-rerun the architecture analyzer. The /requirements, /architecture,
+// and /subsystems routes still exist for debugging but are not in the
+// indicator. Stage indicator collapsed from 6 to 4.
 export const WORKFLOW_STAGES: WorkflowStageConfig[] = [
   { id: 'upload', label: 'Upload', route: '/upload', stageNumber: 1 },
-  { id: 'part-identification', label: 'Part Identification', route: '/part-identification', stageNumber: 2 },
-  { id: 'system-identification', label: 'System Identification', route: '/system-identification', stageNumber: 3 },
-  { id: 'classification', label: 'Classification', route: '/classification', stageNumber: 4 },
-  { id: 'enrichment', label: 'Enrichment', route: '/enrichment', stageNumber: 5 },
-  { id: 'validate', label: 'Part Review', route: '/validate', stageNumber: 6 },
-  { id: 'requirements', label: 'Requirements', route: '/requirements', stageNumber: 7 },
-  { id: 'architecture', label: 'Architecture', route: '/architecture', stageNumber: 8 },
-  { id: 'subsystems', label: 'Subsystems', route: '/subsystems', stageNumber: 9 },
-  { id: 'review', label: 'Review', route: '/review', stageNumber: 10 },
+  { id: 'classification', label: 'Classification', route: '/classification', stageNumber: 2 },
+  { id: 'design', label: 'Design', route: '/design', stageNumber: 3 },
+  { id: 'review', label: 'Review', route: '/review', stageNumber: 4 },
 ];
+
+// Legacy stages — kept addressable via route lookups so deep links to
+// /requirements, /architecture, /subsystems still resolve, but not shown
+// in the StageIndicator above. New code should target 'design' instead.
+const LEGACY_STAGES: WorkflowStageConfig[] = [
+  { id: 'requirements', label: 'Requirements', route: '/requirements', stageNumber: 3 },
+  { id: 'architecture', label: 'Architecture', route: '/architecture', stageNumber: 3 },
+  { id: 'subsystems', label: 'Subsystems', route: '/subsystems', stageNumber: 3 },
+];
+
+const ALL_STAGE_ENTRIES = [...WORKFLOW_STAGES, ...LEGACY_STAGES];
 
 export const TOTAL_WORKFLOW_STAGES = WORKFLOW_STAGES.length;
 
 export const STAGE_TO_ROUTE = Object.fromEntries(
-  WORKFLOW_STAGES.map(stage => [stage.id, stage.route]),
+  ALL_STAGE_ENTRIES.map(stage => [stage.id, stage.route]),
 ) as Partial<Record<SessionStage, string>>;
 
 export const ROUTE_TO_STAGE = Object.fromEntries(
-  WORKFLOW_STAGES.map(stage => [stage.route, stage.id]),
+  ALL_STAGE_ENTRIES.map(stage => [stage.route, stage.id]),
 ) as Record<string, SessionStage>;
 
 export const STAGE_TO_NUMBER = Object.fromEntries(
-  WORKFLOW_STAGES.map(stage => [stage.id, stage.stageNumber]),
+  ALL_STAGE_ENTRIES.map(stage => [stage.id, stage.stageNumber]),
 ) as Partial<Record<SessionStage, number>>;
 
 export function getRouteForStage(stageNumber: number): string {

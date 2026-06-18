@@ -17,6 +17,7 @@ const ArchitectureFixturePage = lazy(() => import('./pages/architecture/Architec
 const DesignDefinitionPage = lazy(() => import('./pages/design-definition/DesignDefinitionPage').then(module => ({ default: module.DesignDefinitionPage })));
 const RequirementsPage = lazy(() => import('./pages/requirements/RequirementsPage').then(module => ({ default: module.RequirementsPage })));
 const SubsystemsPage = lazy(() => import('./pages/subsystems/SubsystemsPage').then(module => ({ default: module.SubsystemsPage })));
+const DesignPage = lazy(() => import('./pages/design/DesignPage').then(module => ({ default: module.DesignPage })));
 const ReviewPage = lazy(() => import('./pages/review/ReviewPage').then(module => ({ default: module.ReviewPage })));
 const CompletedPage = lazy(() => import('./pages/completed/CompletedPage').then(module => ({ default: module.CompletedPage })));
 const OptimizationPage = lazy(() => import('./pages/optimization/OptimizationPage').then(module => ({ default: module.OptimizationPage })));
@@ -50,6 +51,7 @@ export default function App() {
             <Route path="/architecture" element={<Layout showStageIndicator={true}><ArchitecturePage /></Layout>} />
             <Route path="/architecture/fixtures" element={<ArchitectureFixturePage />} />
             <Route path="/subsystems" element={<Layout showStageIndicator={true}><SubsystemsPage /></Layout>} />
+            <Route path="/design" element={<Layout showStageIndicator={true}><DesignPage /></Layout>} />
             <Route path="/review" element={<Layout><ReviewPage /></Layout>} />
             <Route path="/completed" element={<CompletedPage />} />
             <Route path="/optimization" element={<OptimizationPage />} />

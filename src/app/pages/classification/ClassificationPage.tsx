@@ -32,12 +32,14 @@ export function ClassificationPage() {
   }, [contextSessionId, querySessionId, updateParams]);
 
   const handleClassificationComplete = (classifiedComponents: Component[]) => {
+    // 2026-06-12: classification advances straight into the consolidated
+    // Design workspace (requirements + architecture + subsystems in one
+    // screen). The /requirements, /architecture, and /subsystems routes
+    // still exist for debug deep-linking.
     const fundamentalCount = classifiedComponents.filter(c => c.isFundamental === true).length;
     const auxiliaryCount = classifiedComponents.filter(c => c.isFundamental === false).length;
-
-    console.log('[classification-page] handleClassificationComplete called; fundamental=', fundamentalCount, 'aux=', auxiliaryCount, '→ navigating to enrichment');
-    toast.success(`Classification complete! ${fundamentalCount} fundamental, ${auxiliaryCount} auxiliary`);
-    navigateToStage('enrichment');
+    toast.success(`Ready for design — ${fundamentalCount} fundamental, ${auxiliaryCount} support`);
+    navigateToStage('design');
   };
 
   return (

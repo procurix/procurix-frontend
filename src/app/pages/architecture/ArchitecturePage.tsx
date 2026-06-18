@@ -101,9 +101,16 @@ function toArchitecturePinout(pins: PartPin[] | null | undefined): Record<string
 
 interface ArchitecturePageProps {
   readOnly?: boolean;
+  /** When provided, the embedded toggle button is hidden and the parent
+   *  owns the overlay state (e.g. the consolidated Design page). */
+  showSubsystemOverlay?: boolean;
+  /** When true, the "Complete Architecture" button inside SystemArchitectureView
+   *  is hidden. The consolidated Design page sets this because its Generate
+   *  Subsystems action implicitly confirms the architecture. */
+  hideCompleteButton?: boolean;
 }
 
-export function ArchitecturePage({ readOnly = false }: ArchitecturePageProps = {}) {
+export function ArchitecturePage({ readOnly = false, showSubsystemOverlay: showSubsystemOverlayProp, hideCompleteButton = false }: ArchitecturePageProps = {}) {
   const { sessionId: contextSessionId, setSessionId, setCurrentStage, refreshTrigger } = useSession();
   const { sessionId: querySessionId, updateParams } = useQueryParams();
   const { activeSessionId, navigateToStage } = useWorkflowNavigation();
@@ -113,7 +120,9 @@ export function ArchitecturePage({ readOnly = false }: ArchitecturePageProps = {
   const [nets, setNets] = useState<ArchitectureNet[]>([]);
   const [completionReadiness, setCompletionReadiness] = useState<ArchitectureCompletionReadiness | null>(null);
   const [classificationMap, setClassificationMap] = useState<Record<string, string>>({});
-  const [showSubsystemOverlay, setShowSubsystemOverlay] = useState(false);
+  const [internalShowSubsystemOverlay, setShowSubsystemOverlay] = useState(false);
+  const showSubsystemOverlay = showSubsystemOverlayProp ?? internalShowSubsystemOverlay;
+  const overlayIsControlledByParent = showSubsystemOverlayProp !== undefined;
   const [subsystemOverlay, setSubsystemOverlay] = useState<Record<string, {
     subsystemId: string;
     subsystemName: string;
@@ -459,18 +468,20 @@ export function ArchitecturePage({ readOnly = false }: ArchitecturePageProps = {
 
   return (
     <div className="relative h-full">
-      <div className="absolute left-4 top-4 z-20">
-        <button
-          type="button"
-          onClick={() => setShowSubsystemOverlay((value) => !value)}
-          className={`rounded-md border px-3 py-2 text-sm font-medium shadow-sm ${
-            showSubsystemOverlay ? 'border-blue-200 bg-blue-50 text-blue-700' : 'border-slate-200 bg-white text-slate-700'
-          }`}
-          title="Show subsystem badges and unassigned subsystem warnings on component nodes"
-        >
-          {showSubsystemOverlay ? 'Hide Subsystems' : 'Show Subsystems'}
-        </button>
-      </div>
+      {!overlayIsControlledByParent && (
+        <div className="absolute left-4 top-4 z-20">
+          <button
+            type="button"
+            onClick={() => setShowSubsystemOverlay((value) => !value)}
+            className={`rounded-md border px-3 py-2 text-sm font-medium shadow-sm ${
+              showSubsystemOverlay ? 'border-blue-200 bg-blue-50 text-blue-700' : 'border-slate-200 bg-white text-slate-700'
+            }`}
+            title="Show subsystem badges and unassigned subsystem warnings on component nodes"
+          >
+            {showSubsystemOverlay ? 'Hide Subsystems' : 'Show Subsystems'}
+          </button>
+        </div>
+      )}
       <SystemArchitectureView
         components={showSubsystemOverlay ? components : components.map((component) => ({
           ...component,
@@ -490,8 +501,9 @@ export function ArchitecturePage({ readOnly = false }: ArchitecturePageProps = {
         layoutScopeId={activeSessionId || undefined}
         onRefreshNets={refreshNets}
         onRefreshCompletionReadiness={refreshCompletionReadiness}
+        hideCompleteButton={hideCompleteButton}
       />
-      {showSubsystemOverlay && Object.keys(subsystemOverlay).length === 0 && (
+      {!overlayIsControlledByParent && showSubsystemOverlay && Object.keys(subsystemOverlay).length === 0 && (
         <div className="absolute left-4 top-16 z-20 rounded-md border border-amber-200 bg-amber-50 px-3 py-2 text-xs text-amber-800 shadow-sm">
           No subsystem data available yet.
         </div>

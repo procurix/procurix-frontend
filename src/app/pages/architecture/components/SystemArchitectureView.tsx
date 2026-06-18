@@ -122,6 +122,10 @@ interface SystemArchitectureViewProps {
   onRefreshNets?: () => Promise<ArchitectureNet[]>;
   onRefreshCompletionReadiness?: () => Promise<ArchitectureCompletionReadiness | null>;
   classificationMap?: Record<string, string>; // part_number -> 'auxiliary'|'non-auxiliary'
+  /** When true, the bottom-right "Complete Architecture" button is hidden.
+   *  Used by the consolidated Design page where Generate Subsystems implicitly
+   *  confirms the architecture. */
+  hideCompleteButton?: boolean;
 }
 
 interface NetLinkDraft {
@@ -402,8 +406,26 @@ function splitComponentAndNetBlocks(
 }
 
 // Inner component that uses useReactFlow hook
-function SystemArchitectureViewInner({ components, onArchitectureComplete, backendResponse, initialConnections, initialUnresolvedConnections, initialNets, completionReadiness, classificationMap, designId, layoutScopeId, onRefreshNets, onRefreshCompletionReadiness }: SystemArchitectureViewProps) {
+function SystemArchitectureViewInner({ components, onArchitectureComplete, backendResponse, initialConnections, initialUnresolvedConnections, initialNets, completionReadiness, classificationMap, designId, layoutScopeId, onRefreshNets, onRefreshCompletionReadiness, hideCompleteButton }: SystemArchitectureViewProps) {
   const { fitView, screenToFlowPosition, zoomIn, zoomOut } = useReactFlow();
+
+  // External camera-zoom trigger used by the consolidated Design page. Opening
+  // a subsystem in the side panel dispatches 'design:zoom-to-nodes' with the
+  // member node ids; closing it sends an empty list to reset.
+  useEffect(() => {
+    const handler = (event: Event) => {
+      const detail = (event as CustomEvent<{ nodeIds: string[] }>).detail;
+      const nodeIds = detail?.nodeIds ?? [];
+      if (nodeIds.length === 0) {
+        void fitView({ padding: 0.32, duration: 400 });
+      } else {
+        void fitView({ nodes: nodeIds.map(id => ({ id })), padding: 0.2, duration: 600 });
+      }
+    };
+    window.addEventListener('design:zoom-to-nodes', handler as EventListener);
+    return () => window.removeEventListener('design:zoom-to-nodes', handler as EventListener);
+  }, [fitView]);
+
   const nodesInitialized = useNodesInitialized();
   const [isAnalyzing, setIsAnalyzing] = useState(true);
   const [analysisStage, setAnalysisStage] = useState(0);
@@ -1911,6 +1933,7 @@ function SystemArchitectureViewInner({ components, onArchitectureComplete, backe
       void confirmNet(designId, netId)
         .then(applyNetResponseAndRefresh)
         .then(() => onRefreshCompletionReadiness?.())
+        .then(() => window.dispatchEvent(new Event('design:updated')))
         .catch((error) => console.error('Failed to confirm net', error));
     }
   }, [applyNetPatch, applyNetResponseAndRefresh, designId, onRefreshCompletionReadiness]);
@@ -1962,7 +1985,10 @@ function SystemArchitectureViewInner({ components, onArchitectureComplete, backe
       }
     }
     setNetReviewWarning(null);
-    onRefreshCompletionReadiness?.();
+    await onRefreshCompletionReadiness?.();
+    // Also notify the consolidated Design page so it refetches its own
+    // readiness snapshot (used to gate the Generate Subsystems button).
+    window.dispatchEvent(new Event('design:updated'));
     setBulkConfirmInFlight(false);
     if (failed > 0) {
       console.warn(`Confirmed ${succeeded}/${suggestedNetIds.length} suggested nets; ${failed} failed`);
@@ -2576,6 +2602,7 @@ function SystemArchitectureViewInner({ components, onArchitectureComplete, backe
                 {viewMode === 'fundamental' ? `Fundamental (${fundamentalIds.size})` : `All (${nodes.length})`}
               </Button>
             )}
+            {!hideCompleteButton && (
             <Button
               onClick={() => void handleComplete()}
               className="gap-2"
@@ -2585,6 +2612,7 @@ function SystemArchitectureViewInner({ components, onArchitectureComplete, backe
               <CheckCircle className="h-4 w-4" />
               Complete Architecture
             </Button>
+            )}
           </div>
           {completionBlockers.length > 0 && (
             <div
@@ -3584,7 +3612,7 @@ function SystemArchitectureViewInner({ components, onArchitectureComplete, backe
 }
 
 // Wrapper component that provides ReactFlow context
-export function SystemArchitectureView({ components, onArchitectureComplete, backendResponse, initialConnections, initialUnresolvedConnections, initialNets, completionReadiness, classificationMap, designId, layoutScopeId, onRefreshNets, onRefreshCompletionReadiness }: SystemArchitectureViewProps) {
+export function SystemArchitectureView({ components, onArchitectureComplete, backendResponse, initialConnections, initialUnresolvedConnections, initialNets, completionReadiness, classificationMap, designId, layoutScopeId, onRefreshNets, onRefreshCompletionReadiness, hideCompleteButton }: SystemArchitectureViewProps) {
   return (
     <ReactFlowProvider>
       <SystemArchitectureViewInner
@@ -3600,6 +3628,7 @@ export function SystemArchitectureView({ components, onArchitectureComplete, bac
         layoutScopeId={layoutScopeId}
         onRefreshNets={onRefreshNets}
         onRefreshCompletionReadiness={onRefreshCompletionReadiness}
+        hideCompleteButton={hideCompleteButton}
       />
     </ReactFlowProvider>
   );

@@ -1,0 +1,1472 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1" />
+  <title>Optimization Lens Wireframe</title>
+  <style>
+    :root {
+      color-scheme: light;
+      --ink: #0f172a;
+      --muted: #52637a;
+      --line: #d8e0eb;
+      --line-strong: #b9c6d8;
+      --panel: #ffffff;
+      --page: #f4f7fb;
+      --nav: #101827;
+      --blue: #2563eb;
+      --blue-soft: #e8f0ff;
+      --green: #168357;
+      --green-soft: #e8f8f0;
+      --amber: #b45309;
+      --amber-soft: #fff5db;
+      --red: #c2410c;
+      --red-soft: #fff0e8;
+      --violet: #6d28d9;
+      --violet-soft: #f2ecff;
+      --shadow: 0 12px 30px rgba(15, 23, 42, 0.08);
+    }
+
+    * {
+      box-sizing: border-box;
+    }
+
+    body {
+      margin: 0;
+      font-family: Inter, ui-sans-serif, system-ui, -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif;
+      color: var(--ink);
+      background: var(--page);
+    }
+
+    button,
+    input,
+    select {
+      font: inherit;
+    }
+
+    button {
+      cursor: pointer;
+    }
+
+    .shell {
+      display: grid;
+      grid-template-rows: auto auto minmax(0, 1fr);
+      min-height: 100vh;
+    }
+
+    .topbar {
+      display: flex;
+      align-items: center;
+      justify-content: space-between;
+      gap: 16px;
+      padding: 14px 20px;
+      border-bottom: 1px solid var(--line);
+      background: rgba(255, 255, 255, 0.95);
+    }
+
+    .brand {
+      display: flex;
+      flex-direction: column;
+      gap: 2px;
+      min-width: 220px;
+    }
+
+    .brand strong {
+      font-size: 18px;
+      letter-spacing: 0;
+    }
+
+    .brand span {
+      color: var(--muted);
+      font-size: 12px;
+    }
+
+    .run-status {
+      display: flex;
+      align-items: center;
+      gap: 10px;
+      color: var(--muted);
+      font-size: 12px;
+    }
+
+    .dot {
+      width: 8px;
+      height: 8px;
+      border-radius: 999px;
+      background: var(--green);
+      box-shadow: 0 0 0 4px var(--green-soft);
+    }
+
+    .tabs {
+      display: flex;
+      gap: 8px;
+      padding: 10px 20px;
+      border-bottom: 1px solid var(--line);
+      background: #fff;
+    }
+
+    .tab {
+      border: 1px solid transparent;
+      background: transparent;
+      color: #31435a;
+      padding: 8px 12px;
+      border-radius: 6px;
+      font-size: 13px;
+      font-weight: 700;
+    }
+
+    .tab.active {
+      color: #fff;
+      background: var(--nav);
+    }
+
+    .workspace {
+      display: grid;
+      grid-template-columns: 280px minmax(560px, 1fr) 360px;
+      gap: 14px;
+      min-height: 0;
+      padding: 14px;
+    }
+
+    .panel {
+      min-height: 0;
+      border: 1px solid var(--line);
+      background: var(--panel);
+      border-radius: 8px;
+      box-shadow: var(--shadow);
+    }
+
+    .left,
+    .center,
+    .right {
+      overflow: hidden;
+      display: flex;
+      flex-direction: column;
+    }
+
+    .panel-header {
+      display: flex;
+      align-items: center;
+      justify-content: space-between;
+      gap: 12px;
+      padding: 14px;
+      border-bottom: 1px solid var(--line);
+    }
+
+    .panel-header h2,
+    .panel-header h3 {
+      margin: 0;
+      font-size: 15px;
+      letter-spacing: 0;
+    }
+
+    .panel-header p {
+      margin: 3px 0 0;
+      color: var(--muted);
+      font-size: 12px;
+    }
+
+    .scroll {
+      overflow: auto;
+      padding: 14px;
+    }
+
+    .scope-list,
+    .entity-list,
+    .candidate-list,
+    .signal-list,
+    .blast-list,
+    .changeset-list {
+      display: grid;
+      gap: 10px;
+    }
+
+    .section-title {
+      margin: 18px 0 8px;
+      color: #607188;
+      font-size: 11px;
+      font-weight: 800;
+      letter-spacing: 0.08em;
+      text-transform: uppercase;
+    }
+
+    .card-button,
+    .candidate-card {
+      width: 100%;
+      text-align: left;
+      border: 1px solid var(--line);
+      background: #fff;
+      border-radius: 8px;
+      padding: 12px;
+      transition: border-color 0.15s, box-shadow 0.15s, background 0.15s;
+    }
+
+    .card-button:hover,
+    .candidate-card:hover {
+      border-color: var(--line-strong);
+      box-shadow: 0 6px 16px rgba(15, 23, 42, 0.06);
+    }
+
+    .card-button.active,
+    .candidate-card.active {
+      border-color: var(--blue);
+      background: var(--blue-soft);
+    }
+
+    .card-title {
+      display: flex;
+      justify-content: space-between;
+      gap: 10px;
+      font-weight: 800;
+      font-size: 13px;
+    }
+
+    .card-subtitle {
+      margin-top: 6px;
+      color: var(--muted);
+      font-size: 12px;
+      line-height: 1.35;
+    }
+
+    .badge-row {
+      display: flex;
+      flex-wrap: wrap;
+      gap: 6px;
+      margin-top: 10px;
+    }
+
+    .badge {
+      display: inline-flex;
+      align-items: center;
+      gap: 4px;
+      border: 1px solid var(--line);
+      background: #f8fafc;
+      border-radius: 5px;
+      padding: 4px 6px;
+      color: #334155;
+      font-size: 11px;
+      font-weight: 700;
+      white-space: nowrap;
+    }
+
+    .badge.good {
+      color: var(--green);
+      border-color: #b7e2cb;
+      background: var(--green-soft);
+    }
+
+    .badge.warn {
+      color: var(--amber);
+      border-color: #f3d28b;
+      background: var(--amber-soft);
+    }
+
+    .badge.bad {
+      color: var(--red);
+      border-color: #ffc4ad;
+      background: var(--red-soft);
+    }
+
+    .badge.info {
+      color: var(--blue);
+      border-color: #bdd0ff;
+      background: var(--blue-soft);
+    }
+
+    .badge.violet {
+      color: var(--violet);
+      border-color: #d8c8ff;
+      background: var(--violet-soft);
+    }
+
+    .focus-bar {
+      display: grid;
+      grid-template-columns: 1.2fr 1fr;
+      gap: 12px;
+      padding: 14px;
+      border-bottom: 1px solid var(--line);
+      background: #fff;
+    }
+
+    .flow-steps {
+      display: grid;
+      grid-template-columns: repeat(4, minmax(0, 1fr));
+      gap: 8px;
+      padding: 12px 14px;
+      border-bottom: 1px solid var(--line);
+      background: #fbfdff;
+    }
+
+    .flow-step {
+      display: flex;
+      align-items: center;
+      gap: 8px;
+      border: 1px solid var(--line);
+      border-radius: 8px;
+      padding: 9px;
+      color: #40536c;
+      font-size: 12px;
+      font-weight: 800;
+      background: #fff;
+    }
+
+    .flow-step strong {
+      display: grid;
+      place-items: center;
+      width: 22px;
+      height: 22px;
+      flex: 0 0 22px;
+      border-radius: 999px;
+      color: #fff;
+      background: var(--nav);
+      font-size: 11px;
+    }
+
+    .focus-card {
+      border: 1px solid var(--line);
+      border-radius: 8px;
+      padding: 12px;
+      background: #fbfdff;
+    }
+
+    .focus-card strong {
+      display: block;
+      margin-bottom: 5px;
+      font-size: 15px;
+    }
+
+    .focus-card span {
+      color: var(--muted);
+      font-size: 12px;
+      line-height: 1.4;
+    }
+
+    .mode-grid {
+      display: grid;
+      grid-template-columns: repeat(2, minmax(0, 1fr));
+      gap: 8px;
+      margin-top: 8px;
+    }
+
+    .mode {
+      border: 1px solid var(--line);
+      background: #fff;
+      color: #26364b;
+      border-radius: 8px;
+      padding: 9px;
+      font-size: 12px;
+      font-weight: 800;
+      text-align: left;
+    }
+
+    .mode strong {
+      display: block;
+      margin: 0 0 3px;
+      font-size: 12px;
+    }
+
+    .mode span {
+      display: block;
+      color: var(--muted);
+      font-size: 11px;
+      font-weight: 600;
+      line-height: 1.3;
+    }
+
+    .mode.active {
+      border-color: var(--blue);
+      color: var(--blue);
+      background: var(--blue-soft);
+    }
+
+    .selected-option {
+      margin-top: 10px;
+      border: 1px solid #bdd0ff;
+      border-radius: 8px;
+      padding: 9px;
+      color: #1d4ed8;
+      background: var(--blue-soft);
+      font-size: 12px;
+      line-height: 1.4;
+    }
+
+    .main-grid {
+      display: grid;
+      grid-template-columns: minmax(0, 1.05fr) minmax(360px, 0.95fr);
+      gap: 14px;
+      padding: 14px;
+      overflow: auto;
+      min-height: 0;
+    }
+
+    .wire-panel {
+      border: 1px solid var(--line);
+      border-radius: 8px;
+      background: #fff;
+      overflow: hidden;
+    }
+
+    .wire-panel header {
+      display: flex;
+      align-items: center;
+      justify-content: space-between;
+      padding: 12px;
+      border-bottom: 1px solid var(--line);
+      background: #fbfdff;
+    }
+
+    .wire-panel header h3 {
+      margin: 0;
+      font-size: 13px;
+    }
+
+    .wire-panel .body {
+      padding: 12px;
+    }
+
+    .score-grid {
+      display: grid;
+      gap: 9px;
+      margin-top: 10px;
+    }
+
+    .score-row {
+      display: grid;
+      grid-template-columns: 120px minmax(120px, 1fr) 44px;
+      align-items: center;
+      gap: 10px;
+      font-size: 12px;
+    }
+
+    .bar {
+      height: 8px;
+      border-radius: 999px;
+      background: #edf2f7;
+      overflow: hidden;
+    }
+
+    .bar span {
+      display: block;
+      height: 100%;
+      border-radius: 999px;
+      background: var(--blue);
+    }
+
+    .signal {
+      display: grid;
+      grid-template-columns: auto minmax(0, 1fr);
+      gap: 9px;
+      border: 1px solid var(--line);
+      border-radius: 8px;
+      padding: 10px;
+      background: #fff;
+    }
+
+    .signal-icon {
+      width: 26px;
+      height: 26px;
+      display: grid;
+      place-items: center;
+      border-radius: 7px;
+      font-size: 12px;
+      font-weight: 900;
+      background: #eef2f7;
+      color: #475569;
+    }
+
+    .signal.good .signal-icon {
+      color: var(--green);
+      background: var(--green-soft);
+    }
+
+    .signal.warn .signal-icon {
+      color: var(--amber);
+      background: var(--amber-soft);
+    }
+
+    .signal.bad .signal-icon {
+      color: var(--red);
+      background: var(--red-soft);
+    }
+
+    .signal.info .signal-icon {
+      color: var(--blue);
+      background: var(--blue-soft);
+    }
+
+    .signal-title {
+      font-size: 12px;
+      font-weight: 900;
+    }
+
+    .signal-text {
+      margin-top: 3px;
+      color: var(--muted);
+      font-size: 12px;
+      line-height: 1.4;
+    }
+
+    .blast-item,
+    .changeset-item {
+      display: flex;
+      align-items: flex-start;
+      justify-content: space-between;
+      gap: 12px;
+      border: 1px solid var(--line);
+      border-radius: 8px;
+      padding: 10px;
+      background: #fff;
+    }
+
+    .blast-item strong,
+    .changeset-item strong {
+      display: block;
+      font-size: 12px;
+      margin-bottom: 3px;
+    }
+
+    .blast-item span,
+    .changeset-item span {
+      color: var(--muted);
+      font-size: 12px;
+      line-height: 1.35;
+    }
+
+    .actions {
+      display: flex;
+      flex-wrap: wrap;
+      gap: 8px;
+      padding: 12px;
+      border-top: 1px solid var(--line);
+      background: #fbfdff;
+    }
+
+    .btn {
+      border: 1px solid var(--line);
+      border-radius: 7px;
+      background: #fff;
+      color: #111827;
+      padding: 8px 11px;
+      font-size: 12px;
+      font-weight: 900;
+    }
+
+    .btn.primary {
+      color: #fff;
+      border-color: var(--nav);
+      background: var(--nav);
+    }
+
+    .btn.danger {
+      color: var(--red);
+      border-color: #ffc4ad;
+      background: var(--red-soft);
+    }
+
+    .btn:disabled {
+      cursor: not-allowed;
+      opacity: 0.55;
+    }
+
+    .diagram {
+      position: relative;
+      min-height: 330px;
+      border: 1px dashed #c6d0dd;
+      border-radius: 8px;
+      background:
+        linear-gradient(#f9fbfd 31px, transparent 31px),
+        linear-gradient(90deg, #f9fbfd 31px, transparent 31px);
+      background-size: 32px 32px;
+      overflow: hidden;
+    }
+
+    .node {
+      position: absolute;
+      width: 134px;
+      min-height: 62px;
+      border: 1px solid #bac7d8;
+      border-radius: 7px;
+      background: #fff;
+      padding: 9px;
+      box-shadow: 0 6px 16px rgba(15, 23, 42, 0.08);
+      font-size: 11px;
+    }
+
+    .node.focus {
+      border: 2px solid var(--blue);
+      box-shadow: 0 0 0 5px var(--blue-soft);
+    }
+
+    .node strong {
+      display: block;
+      font-size: 12px;
+      margin-bottom: 4px;
+    }
+
+    .node span {
+      color: var(--muted);
+      line-height: 1.25;
+    }
+
+    .edge {
+      position: absolute;
+      height: 2px;
+      transform-origin: left center;
+      background: var(--blue);
+      opacity: 0.75;
+    }
+
+    .edge.warn {
+      background: var(--amber);
+      height: 3px;
+    }
+
+    .edge.red {
+      background: var(--red);
+      height: 3px;
+    }
+
+    .mini-table {
+      width: 100%;
+      border-collapse: collapse;
+      font-size: 12px;
+    }
+
+    .mini-table th,
+    .mini-table td {
+      text-align: left;
+      border-bottom: 1px solid var(--line);
+      padding: 8px 6px;
+      vertical-align: top;
+    }
+
+    .mini-table th {
+      color: #607188;
+      font-size: 11px;
+      text-transform: uppercase;
+      letter-spacing: 0.05em;
+    }
+
+    .empty-state {
+      border: 1px dashed var(--line-strong);
+      border-radius: 8px;
+      padding: 18px;
+      color: var(--muted);
+      font-size: 13px;
+      text-align: center;
+      background: #fbfdff;
+    }
+
+    @media (max-width: 1180px) {
+      .workspace {
+        grid-template-columns: 250px minmax(520px, 1fr);
+      }
+
+      .right {
+        display: none;
+      }
+    }
+
+    @media (max-width: 900px) {
+      .workspace {
+        grid-template-columns: 1fr;
+      }
+
+      .left {
+        min-height: 360px;
+      }
+
+      .main-grid,
+      .focus-bar {
+        grid-template-columns: 1fr;
+      }
+
+      .flow-steps,
+      .mode-grid {
+        grid-template-columns: 1fr;
+      }
+    }
+  </style>
+</head>
+<body>
+  <div class="shell">
+    <header class="topbar">
+      <div class="brand">
+        <strong>Design Definition Workspace</strong>
+        <span>Interactive optimizer lens wireframe with dummy data</span>
+      </div>
+      <div class="run-status">
+        <span class="dot"></span>
+        <span>Grounded model loaded from definition read model</span>
+      </div>
+    </header>
+
+    <nav class="tabs" aria-label="Workspace lenses">
+      <button class="tab">Architecture</button>
+      <button class="tab">Requirements</button>
+      <button class="tab">Subsystems</button>
+      <button class="tab">Interfaces</button>
+      <button class="tab active">Optimizer</button>
+      <button class="tab">Review</button>
+    </nav>
+
+    <main class="workspace">
+      <aside class="panel left">
+        <div class="panel-header">
+          <div>
+            <h2>Focus Scope</h2>
+            <p>Select where the decision starts.</p>
+          </div>
+        </div>
+        <div class="scroll">
+          <div id="scopeList" class="scope-list"></div>
+
+          <div class="section-title">Available Entities</div>
+          <div id="entityList" class="entity-list"></div>
+        </div>
+      </aside>
+
+      <section class="panel center">
+        <div class="panel-header">
+          <div>
+            <h2>Optimization Lens</h2>
+            <p>Same engine across scopes: objectives, candidates, signals, blast radius, change set.</p>
+          </div>
+          <button id="generateBtn" class="btn primary">Generate Candidates</button>
+        </div>
+
+        <div class="flow-steps" aria-label="Part optimization workflow">
+          <div class="flow-step"><strong>1</strong><span>Select focus entity</span></div>
+          <div class="flow-step"><strong>2</strong><span>Choose optimization option</span></div>
+          <div class="flow-step"><strong>3</strong><span>Generate candidates</span></div>
+          <div class="flow-step"><strong>4</strong><span>Review blast radius</span></div>
+        </div>
+
+        <div class="focus-bar">
+          <div class="focus-card">
+            <strong id="focusTitle">Focus</strong>
+            <span id="focusDescription"></span>
+            <div id="focusBadges" class="badge-row"></div>
+          </div>
+          <div class="focus-card">
+            <strong id="modeTitle">Choose Optimization Option</strong>
+            <span id="modeHint">Pick one primary path. The backend expands it into objectives, constraints, and signals.</span>
+            <div id="modeGrid" class="mode-grid"></div>
+            <div id="optionSummary" class="selected-option"></div>
+          </div>
+        </div>
+
+        <div class="main-grid">
+          <div class="wire-panel">
+            <header>
+              <h3>Candidate Options</h3>
+              <span id="candidateCount" class="badge info"></span>
+            </header>
+            <div class="body">
+              <div id="candidateList" class="candidate-list"></div>
+            </div>
+          </div>
+
+          <div class="wire-panel">
+            <header>
+              <h3>Focused Design Context</h3>
+              <span class="badge violet">blast-aware</span>
+            </header>
+            <div class="body">
+              <div class="diagram" aria-label="Dummy graph">
+                <div class="edge" style="left:118px; top:91px; width:170px; transform:rotate(12deg);"></div>
+                <div class="edge warn" style="left:288px; top:139px; width:150px; transform:rotate(-17deg);"></div>
+                <div class="edge red" style="left:170px; top:238px; width:190px; transform:rotate(-4deg);"></div>
+                <div class="node" style="left:32px; top:42px;">
+                  <strong>TPS54328</strong>
+                  <span>12 V to 5 V buck</span>
+                </div>
+                <div id="diagramFocusNode" class="node focus" style="left:268px; top:75px;">
+                  <strong>LM317LCPK</strong>
+                  <span>3.3 V LDO focus</span>
+                </div>
+                <div class="node" style="left:438px; top:160px;">
+                  <strong>CAN/LIN</strong>
+                  <span>External loads</span>
+                </div>
+                <div class="node" style="left:80px; top:228px;">
+                  <strong>SYS-PWR-004</strong>
+                  <span>3.3 V rail requirement</span>
+                </div>
+                <div class="node" style="left:362px; top:248px;">
+                  <strong>VIO_3V3</strong>
+                  <span>Interface contract</span>
+                </div>
+              </div>
+            </div>
+          </div>
+
+          <div class="wire-panel">
+            <header>
+              <h3>Selected Candidate Score</h3>
+              <span id="overallScore" class="badge good"></span>
+            </header>
+            <div class="body">
+              <div id="scoreGrid" class="score-grid"></div>
+            </div>
+          </div>
+
+          <div class="wire-panel">
+            <header>
+              <h3>Comparison Matrix</h3>
+              <span class="badge info">multi-factor</span>
+            </header>
+            <div class="body">
+              <table class="mini-table">
+                <thead>
+                  <tr>
+                    <th>Candidate</th>
+                    <th>Best for</th>
+                    <th>Risk</th>
+                    <th>Decision</th>
+                  </tr>
+                </thead>
+                <tbody id="comparisonRows"></tbody>
+              </table>
+            </div>
+          </div>
+        </div>
+      </section>
+
+      <aside class="panel right">
+        <div class="panel-header">
+          <div>
+            <h2>Decision Inspector</h2>
+            <p>Signals and blast radius before commit.</p>
+          </div>
+        </div>
+        <div class="scroll">
+          <div class="section-title">Signals</div>
+          <div id="signalList" class="signal-list"></div>
+
+          <div class="section-title">Blast Radius</div>
+          <div id="blastList" class="blast-list"></div>
+
+          <div class="section-title">Change Set Preview</div>
+          <div id="changesetList" class="changeset-list"></div>
+        </div>
+        <div class="actions">
+          <button class="btn">Save as proposal</button>
+          <button class="btn">Ask agent</button>
+          <button id="applyBtn" class="btn primary">Preview commit</button>
+          <button class="btn danger">Reject candidate</button>
+        </div>
+      </aside>
+    </main>
+  </div>
+
+  <script>
+    const model = {
+      design: {
+        label: "Design",
+        hint: "Whole product decision",
+        entities: [
+          {
+            id: "design-main",
+            name: "BOM-PCB-01016 R1",
+            description: "Optimize the full design for cost, risk, compliance, and manufacturability.",
+            badges: ["14 requirements", "64 component groups", "10 interfaces"],
+            modes: ["Cost down", "Supply resilience", "Compliance first", "Minimum change", "Manufacturing readiness"],
+            candidates: [
+              {
+                title: "Low-risk sourcing bundle",
+                summary: "Replace two constrained parts, keep topology stable, and reduce single-source exposure.",
+                bestFor: "Supply resilience",
+                risk: "Medium",
+                decision: "Review",
+                overall: 82,
+                scores: { technical: 84, cost: 68, availability: 91, compliance: 86, manufacturing: 78, risk: 64 },
+                signals: [
+                  ["good", "Availability boost", "Two replacements improve stock coverage across approved distributors."],
+                  ["warn", "Qualification effort", "One part changes manufacturer and requires purchasing approval."],
+                  ["info", "No topology change", "All current subsystem boundaries remain intact."]
+                ],
+                blast: [
+                  ["Parts", "2 candidate replacements across Power and CAN."],
+                  ["Requirements", "3 subsystem requirements become stale for review."],
+                  ["Interfaces", "No interface boundary changes."]
+                ],
+                changes: [
+                  ["Replace", "Swap two parts after verifier passes pin/package checks."],
+                  ["Mark stale", "Mark affected subsystem requirements for review."],
+                  ["Create review items", "Supplier approval and qualification tasks."]
+                ]
+              },
+              {
+                title: "Aggressive cost-down bundle",
+                summary: "Lower BOM cost using cheaper alternates with higher engineering review burden.",
+                bestFor: "Cost",
+                risk: "High",
+                decision: "Maybe",
+                overall: 70,
+                scores: { technical: 71, cost: 93, availability: 74, compliance: 62, manufacturing: 55, risk: 38 },
+                signals: [
+                  ["good", "Cost reduction", "Estimated 11 percent unit BOM cost improvement."],
+                  ["bad", "Compliance conflict", "One candidate lacks automotive qualification evidence."],
+                  ["warn", "Layout review", "Package change triggers PCB validation."]
+                ],
+                blast: [
+                  ["Parts", "4 parts affected."],
+                  ["Connections", "2 pin mappings need revalidation."],
+                  ["Requirements", "5 requirements stale until reviewed."]
+                ],
+                changes: [
+                  ["Replace", "Create candidate change set for 4 parts."],
+                  ["Rebuild context", "Re-run connection and interface checks."],
+                  ["Block commit", "Requires compliance approval before apply."]
+                ]
+              }
+            ]
+          }
+        ]
+      },
+      subsystem: {
+        label: "Subsystem",
+        hint: "Boundary and architecture decision",
+        entities: [
+          {
+            id: "sub-power",
+            name: "SUB-001 Power Regulation",
+            description: "Voltage conversion, power filtering, current monitoring, and external supply interfaces.",
+            badges: ["5 parts", "7 sys reqs", "3 interfaces"],
+            modes: ["Simplify", "Cost down", "Thermal improvement", "Preserve interfaces", "Reduce review burden"],
+            candidates: [
+              {
+                title: "Replace LDO stage with efficient regulator",
+                summary: "Improve thermal margin while preserving VIO_3V3 interface contract.",
+                bestFor: "Thermal",
+                risk: "Medium",
+                decision: "Review",
+                overall: 86,
+                scores: { technical: 90, cost: 61, availability: 76, compliance: 88, manufacturing: 72, risk: 67 },
+                signals: [
+                  ["good", "Thermal improvement", "Estimated lower dissipation than LM317LCPK."],
+                  ["warn", "Cost increase", "Candidate part is higher unit cost."],
+                  ["info", "Boundary stable", "Subsystem interfaces remain the same."]
+                ],
+                blast: [
+                  ["Parts", "LM317LCPK replaced inside SUB-001."],
+                  ["Interfaces", "VIO_3V3 marked stale until constraints are reviewed."],
+                  ["Requirements", "SYS-PWR-004 child requirement becomes stale."]
+                ],
+                changes: [
+                  ["Replace part", "Create replacement proposal for LM317LCPK."],
+                  ["Mark stale", "Mark linked interface and subsystem requirement stale."],
+                  ["Revalidate", "Run electrical and compliance checks."]
+                ]
+              },
+              {
+                title: "Move EMI filter to subsystem boundary",
+                summary: "Keep filter as boundary evidence instead of core power-regulation member.",
+                bestFor: "Architecture clarity",
+                risk: "Low",
+                decision: "Good",
+                overall: 89,
+                scores: { technical: 86, cost: 100, availability: 100, compliance: 82, manufacturing: 100, risk: 81 },
+                signals: [
+                  ["good", "Cleaner ownership", "Filter is represented as boundary/interface evidence."],
+                  ["info", "No BOM change", "No part replacement or sourcing impact."],
+                  ["warn", "Requirement review", "One interface requirement should be checked."]
+                ],
+                blast: [
+                  ["Subsystems", "Power keeps ownership, LIN sees interface evidence."],
+                  ["Interfaces", "LIN_PROTECTED interface gets stronger evidence."],
+                  ["Requirements", "1 subsystem requirement stale."]
+                ],
+                changes: [
+                  ["Move role", "Update SubsystemPart role and interface evidence."],
+                  ["Refresh readiness", "Recompute unassigned and duplicate ownership blockers."],
+                  ["Queue review", "Ask user to confirm interface requirement."]
+                ]
+              }
+            ]
+          },
+          {
+            id: "sub-can",
+            name: "SUB-002 CAN Communication",
+            description: "CAN transceiver, protection, and bus interface requirements.",
+            badges: ["4 parts", "9 sys reqs", "2 interfaces"],
+            modes: ["Compliance first", "Availability", "Reduce EMI risk", "Minimum change"],
+            candidates: []
+          }
+        ]
+      },
+      part: {
+        label: "Part",
+        hint: "Component-level decision",
+        entities: [
+          {
+            id: "part-ldo",
+            name: "LM317LCPK",
+            description: "Adjustable LDO generating the VIO_3V3 rail for downstream loads.",
+            badges: ["Power", "VIO_3V3", "SUB-001"],
+            modes: ["Drop-in replacement", "Cost down", "Availability", "Thermal improvement", "Preferred supplier", "Minimum change"],
+            candidates: [
+              {
+                title: "TLV75533PDBVR",
+                summary: "Modern 3.3 V LDO candidate with improved thermal profile, package review required.",
+                bestFor: "Thermal",
+                risk: "Medium",
+                decision: "Review",
+                overall: 84,
+                scores: { technical: 82, cost: 74, availability: 88, compliance: 80, manufacturing: 61, risk: 65 },
+                signals: [
+                  ["good", "Thermal fit", "Lower dropout and lower dissipation under expected current."],
+                  ["good", "Availability", "Healthy stock at multiple distributors."],
+                  ["warn", "Package mismatch", "Not a direct package match. Layout validation needed."],
+                  ["info", "Supplier", "Preferred supplier but not currently used in this BOM."]
+                ],
+                blast: [
+                  ["Connections", "VREG5_TO_LDO_IN and VIO_3V3 affected."],
+                  ["Subsystem", "SUB-001 remains owner."],
+                  ["Requirements", "SYS-PWR-004 stale until output constraints reviewed."]
+                ],
+                changes: [
+                  ["Create alternative", "Save candidate MPN and evidence."],
+                  ["Pin verifier", "Run package and pin compatibility check."],
+                  ["Impact preview", "Mark rail requirement and interface contract stale."]
+                ]
+              },
+              {
+                title: "Keep LM317LCPK, add sourcing note",
+                summary: "No technical change. Add sourcing risk note and second-source search task.",
+                bestFor: "Minimum change",
+                risk: "Low",
+                decision: "Good",
+                overall: 78,
+                scores: { technical: 100, cost: 50, availability: 64, compliance: 100, manufacturing: 100, risk: 82 },
+                signals: [
+                  ["good", "No design change", "No requirement, net, or layout impact."],
+                  ["warn", "Availability", "Stock coverage is moderate."],
+                  ["info", "Inventory reuse", "Existing inventory can support early builds."]
+                ],
+                blast: [
+                  ["Parts", "No replacement applied."],
+                  ["Requirements", "No stale requirements."],
+                  ["Review", "Creates a sourcing watch item only."]
+                ],
+                changes: [
+                  ["Add note", "Create informational signal on current part."],
+                  ["Queue task", "Search for second-source candidates later."]
+                ]
+              }
+            ]
+          },
+          {
+            id: "part-can",
+            name: "TJA1051TK/3",
+            description: "High-speed CAN transceiver connected to vehicle bus.",
+            badges: ["Interface", "CAN", "SUB-002"],
+            modes: ["Compliance-safe alternative", "Availability", "AEC-Q preserve", "Cost down"],
+            candidates: []
+          }
+        ]
+      },
+      interface: {
+        label: "Interface",
+        hint: "Subsystem contract decision",
+        entities: [
+          {
+            id: "if-vio",
+            name: "VIO_3V3",
+            description: "Power interface from Power Regulation to CAN/LIN consumers.",
+            badges: ["power", "a_to_b", "stale risk"],
+            modes: ["Clarify contract", "Add requirement", "Reduce coupling", "Verification first", "Stale repair"],
+            candidates: [
+              {
+                title: "Add explicit VIO_3V3 interface requirement",
+                summary: "Create a requirement that defines voltage range, current limit, and verification method.",
+                bestFor: "Traceability",
+                risk: "Low",
+                decision: "Good",
+                overall: 91,
+                scores: { technical: 89, cost: 100, availability: 100, compliance: 92, manufacturing: 100, risk: 85 },
+                signals: [
+                  ["good", "Coverage improvement", "Confirmed interface gets linked requirement coverage."],
+                  ["good", "Verification clarity", "Adds test method for output rail."],
+                  ["info", "No hardware change", "This is a contract/requirements update only."]
+                ],
+                blast: [
+                  ["Requirements", "Creates one subsystem requirement linked to interface."],
+                  ["Interfaces", "VIO_3V3 status can move toward confirmed."],
+                  ["Parts", "No part changes."]
+                ],
+                changes: [
+                  ["Create requirement", "POST subsystem requirement with interface_id prefilled."],
+                  ["Link evidence", "Use interface evidence as requirement source."],
+                  ["Clear warning", "Resolve confirmed interface without requirement warning."]
+                ]
+              },
+              {
+                title: "Change interface type to control/signal",
+                summary: "Reject if evidence says this is actually a control line rather than power rail.",
+                bestFor: "Correction",
+                risk: "High",
+                decision: "Investigate",
+                overall: 58,
+                scores: { technical: 48, cost: 100, availability: 100, compliance: 55, manufacturing: 100, risk: 35 },
+                signals: [
+                  ["bad", "Evidence conflict", "Connection evidence strongly says power rail."],
+                  ["warn", "Requirement mismatch", "Would invalidate SYS-PWR-004 mapping."],
+                  ["info", "No BOM change", "Only metadata and requirement links would change."]
+                ],
+                blast: [
+                  ["Interfaces", "VIO_3V3 contract becomes stale."],
+                  ["Requirements", "2 linked requirements stale."],
+                  ["Review", "Creates conflict item for engineer approval."]
+                ],
+                changes: [
+                  ["Do not auto-apply", "Verifier blocks without explicit engineer approval."],
+                  ["Create conflict", "Add review item explaining evidence conflict."]
+                ]
+              }
+            ]
+          }
+        ]
+      },
+      requirement: {
+        label: "Requirement",
+        hint: "Constraint-driven decision",
+        entities: [
+          {
+            id: "req-pwr",
+            name: "SYS-PWR-004 3.3 V I/O Rail Generation",
+            description: "Design shall generate a stable 3.3 V I/O rail for connected transceivers.",
+            badges: ["confirmed", "Power", "mapped"],
+            modes: ["Improve coverage", "Generate child reqs", "Find implementation options", "Resolve stale links"],
+            candidates: [
+              {
+                title: "Generate missing interface-scoped child requirement",
+                summary: "Add subsystem requirement linked to VIO_3V3 so the parent requirement has stronger coverage.",
+                bestFor: "Coverage",
+                risk: "Low",
+                decision: "Good",
+                overall: 88,
+                scores: { technical: 86, cost: 100, availability: 100, compliance: 90, manufacturing: 100, risk: 82 },
+                signals: [
+                  ["good", "Traceability", "Parent design requirement maps to subsystem and interface."],
+                  ["info", "No hardware change", "Only requirement model changes."],
+                  ["warn", "Needs wording review", "AI-generated acceptance criteria need confirmation."]
+                ],
+                blast: [
+                  ["Subsystem requirements", "Creates 1 suggested requirement."],
+                  ["Interfaces", "Links VIO_3V3 requirement coverage."],
+                  ["Review", "Adds suggested requirement pending confirmation."]
+                ],
+                changes: [
+                  ["Create requirement", "Generate child subsystem requirement."],
+                  ["Link interface", "Set interface_id to VIO_3V3."],
+                  ["Queue review", "Require confirm/reject by engineer."]
+                ]
+              }
+            ]
+          }
+        ]
+      }
+    };
+
+    let currentScope = "part";
+    let currentEntityId = "part-ldo";
+    let selectedMode = "Drop-in replacement";
+    let selectedCandidateIndex = 0;
+
+    const scopeList = document.getElementById("scopeList");
+    const entityList = document.getElementById("entityList");
+    const modeGrid = document.getElementById("modeGrid");
+    const modeTitle = document.getElementById("modeTitle");
+    const modeHint = document.getElementById("modeHint");
+    const optionSummary = document.getElementById("optionSummary");
+    const focusTitle = document.getElementById("focusTitle");
+    const focusDescription = document.getElementById("focusDescription");
+    const focusBadges = document.getElementById("focusBadges");
+    const candidateList = document.getElementById("candidateList");
+    const candidateCount = document.getElementById("candidateCount");
+    const scoreGrid = document.getElementById("scoreGrid");
+    const signalList = document.getElementById("signalList");
+    const blastList = document.getElementById("blastList");
+    const changesetList = document.getElementById("changesetList");
+    const comparisonRows = document.getElementById("comparisonRows");
+    const overallScore = document.getElementById("overallScore");
+    const diagramFocusNode = document.getElementById("diagramFocusNode");
+    const generateBtn = document.getElementById("generateBtn");
+    const applyBtn = document.getElementById("applyBtn");
+
+    function activeEntity() {
+      const entities = model[currentScope].entities;
+      return entities.find((item) => item.id === currentEntityId) || entities[0];
+    }
+
+    function activeCandidate() {
+      const entity = activeEntity();
+      return entity.candidates[selectedCandidateIndex] || null;
+    }
+
+    const modeDescriptions = {
+      "Drop-in replacement": "Find same-function alternatives with pin/package compatibility as the first constraint.",
+      "Cost down": "Rank candidates by unit cost reduction after hard engineering constraints pass.",
+      "Availability": "Prefer stock, lead time, and second-source resilience.",
+      "Thermal improvement": "Prefer candidates or changes that reduce heat and derating risk.",
+      "Preferred supplier": "Prefer approved vendors and sourcing policy alignment.",
+      "Minimum change": "Avoid layout, requirement, interface, and qualification churn.",
+      "Compliance-safe alternative": "Preserve standards evidence and automotive qualification.",
+      "AEC-Q preserve": "Keep automotive qualification as a hard constraint.",
+      "Simplify": "Reduce architectural complexity while preserving confirmed interfaces.",
+      "Preserve interfaces": "Prefer changes that do not alter subsystem boundary contracts.",
+      "Clarify contract": "Improve interface contract naming, direction, constraints, and evidence.",
+      "Add requirement": "Create or link missing requirements for the selected scope.",
+      "Improve coverage": "Close traceability gaps without changing hardware.",
+      "Generate child reqs": "Generate scoped requirements from a confirmed parent requirement."
+    };
+
+    function defaultModeFor(entity) {
+      if (currentScope === "part" && entity.modes.includes("Drop-in replacement")) {
+        return "Drop-in replacement";
+      }
+      return entity.modes[0] || "";
+    }
+
+    function candidateMatchesMode(candidate, mode) {
+      const normalizedMode = mode.toLowerCase();
+      const bestFor = candidate.bestFor.toLowerCase();
+      const title = candidate.title.toLowerCase();
+      const summary = candidate.summary.toLowerCase();
+      if (normalizedMode.includes(bestFor)) return true;
+      if (bestFor.includes("thermal") && normalizedMode.includes("thermal")) return true;
+      if (bestFor.includes("minimum") && normalizedMode.includes("minimum")) return true;
+      if (bestFor.includes("cost") && normalizedMode.includes("cost")) return true;
+      if (bestFor.includes("supply") && normalizedMode.includes("availability")) return true;
+      if (title.includes(normalizedMode) || summary.includes(normalizedMode)) return true;
+      return false;
+    }
+
+    function bestCandidateIndexForMode(entity, mode) {
+      const index = entity.candidates.findIndex((candidate) => candidateMatchesMode(candidate, mode));
+      return index >= 0 ? index : 0;
+    }
+
+    function renderScopes() {
+      scopeList.innerHTML = Object.entries(model).map(([key, value]) => `
+        <button class="card-button ${key === currentScope ? "active" : ""}" data-scope="${key}">
+          <div class="card-title">
+            <span>${value.label}</span>
+            <span class="badge">${value.entities.length}</span>
+          </div>
+          <div class="card-subtitle">${value.hint}</div>
+        </button>
+      `).join("");
+    }
+
+    function renderEntities() {
+      const entities = model[currentScope].entities;
+      entityList.innerHTML = entities.map((item) => `
+        <button class="card-button ${item.id === currentEntityId ? "active" : ""}" data-entity="${item.id}">
+          <div class="card-title">
+            <span>${item.name}</span>
+            <span class="badge info">${model[currentScope].label}</span>
+          </div>
+          <div class="card-subtitle">${item.description}</div>
+          <div class="badge-row">
+            ${item.badges.map((badge) => `<span class="badge">${badge}</span>`).join("")}
+          </div>
+        </button>
+      `).join("");
+    }
+
+    function renderFocus() {
+      const entity = activeEntity();
+      focusTitle.textContent = `${model[currentScope].label}: ${entity.name}`;
+      focusDescription.textContent = entity.description;
+      focusBadges.innerHTML = entity.badges.map((badge) => `<span class="badge">${badge}</span>`).join("");
+      diagramFocusNode.querySelector("strong").textContent = entity.name.length > 18 ? entity.name.slice(0, 18) : entity.name;
+      diagramFocusNode.querySelector("span").textContent = `${model[currentScope].label} focus`;
+      modeTitle.textContent = currentScope === "part" ? "Choose Part Optimization Option" : `Choose ${model[currentScope].label} Optimization Option`;
+      modeHint.textContent = currentScope === "part"
+        ? "This mirrors the old optimizer: focus one component, choose the path, then explore candidates."
+        : "Pick one primary path. The backend expands it into objectives, constraints, and signals.";
+
+      modeGrid.innerHTML = entity.modes.map((mode) => `
+        <button class="mode ${mode === selectedMode ? "active" : ""}" data-mode="${mode}">
+          <strong>${mode}</strong>
+          <span>${modeDescriptions[mode] || "Generate candidates for this decision path."}</span>
+        </button>
+      `).join("");
+      optionSummary.innerHTML = `<strong>Selected option:</strong> ${selectedMode || "None"}<br>${modeDescriptions[selectedMode] || "Choose an optimization option to drive candidate generation."}`;
+    }
+
+    function renderCandidates() {
+      const entity = activeEntity();
+      if (!entity.candidates.length) {
+        candidateCount.textContent = "0 candidates";
+        candidateList.innerHTML = `
+          <div class="empty-state">
+            No dummy candidates for this entity yet. Click another entity or use this as a placeholder for agent output.
+          </div>
+        `;
+        comparisonRows.innerHTML = "";
+        renderDecision(null);
+        return;
+      }
+
+      candidateCount.textContent = `${entity.candidates.length} candidates for ${selectedMode}`;
+      candidateList.innerHTML = entity.candidates.map((candidate, index) => `
+        <button class="candidate-card ${index === selectedCandidateIndex ? "active" : ""}" data-candidate="${index}">
+          <div class="card-title">
+            <span>${candidate.title}</span>
+            <span class="badge ${candidate.risk === "High" ? "bad" : candidate.risk === "Medium" ? "warn" : "good"}">${candidate.risk}</span>
+          </div>
+          <div class="card-subtitle">${candidate.summary}</div>
+          <div class="badge-row">
+            <span class="badge info">${candidate.bestFor}</span>
+            ${candidateMatchesMode(candidate, selectedMode) ? `<span class="badge good">option match</span>` : `<span class="badge">secondary option</span>`}
+            <span class="badge ${candidate.decision === "Good" ? "good" : candidate.decision === "Maybe" || candidate.decision === "Review" ? "warn" : "bad"}">${candidate.decision}</span>
+            <span class="badge">${candidate.overall}% overall</span>
+          </div>
+        </button>
+      `).join("");
+
+      comparisonRows.innerHTML = entity.candidates.map((candidate) => `
+        <tr>
+          <td>${candidate.title}</td>
+          <td>${candidate.bestFor}</td>
+          <td>${candidate.risk}</td>
+          <td>${candidate.decision}</td>
+        </tr>
+      `).join("");
+
+      renderDecision(activeCandidate());
+    }
+
+    function renderDecision(candidate) {
+      if (!candidate) {
+        overallScore.textContent = "no candidate";
+        scoreGrid.innerHTML = "";
+        signalList.innerHTML = "";
+        blastList.innerHTML = "";
+        changesetList.innerHTML = "";
+        applyBtn.disabled = true;
+        return;
+      }
+
+      applyBtn.disabled = false;
+      overallScore.textContent = `${candidate.overall}% overall`;
+      scoreGrid.innerHTML = Object.entries(candidate.scores).map(([key, value]) => `
+        <div class="score-row">
+          <span>${labelize(key)}</span>
+          <div class="bar"><span style="width:${value}%"></span></div>
+          <strong>${value}</strong>
+        </div>
+      `).join("");
+
+      signalList.innerHTML = candidate.signals.map(([tone, title, text]) => `
+        <div class="signal ${tone}">
+          <div class="signal-icon">${signalIcon(tone)}</div>
+          <div>
+            <div class="signal-title">${title}</div>
+            <div class="signal-text">${text}</div>
+          </div>
+        </div>
+      `).join("");
+
+      blastList.innerHTML = candidate.blast.map(([title, text]) => `
+        <div class="blast-item">
+          <div>
+            <strong>${title}</strong>
+            <span>${text}</span>
+          </div>
+          <span class="badge warn">impact</span>
+        </div>
+      `).join("");
+
+      changesetList.innerHTML = candidate.changes.map(([title, text]) => `
+        <div class="changeset-item">
+          <div>
+            <strong>${title}</strong>
+            <span>${text}</span>
+          </div>
+          <span class="badge info">planned</span>
+        </div>
+      `).join("");
+    }
+
+    function labelize(value) {
+      return value.replace(/_/g, " ").replace(/\b\w/g, (char) => char.toUpperCase());
+    }
+
+    function signalIcon(tone) {
+      if (tone === "good") return "+";
+      if (tone === "bad") return "!";
+      if (tone === "warn") return "~";
+      return "i";
+    }
+
+    function render() {
+      renderScopes();
+      renderEntities();
+      renderFocus();
+      renderCandidates();
+    }
+
+    document.addEventListener("click", (event) => {
+      const scopeButton = event.target.closest("[data-scope]");
+      if (scopeButton) {
+        currentScope = scopeButton.dataset.scope;
+        currentEntityId = model[currentScope].entities[0].id;
+        selectedCandidateIndex = 0;
+        selectedMode = defaultModeFor(model[currentScope].entities[0]);
+        selectedCandidateIndex = bestCandidateIndexForMode(model[currentScope].entities[0], selectedMode);
+        render();
+        return;
+      }
+
+      const entityButton = event.target.closest("[data-entity]");
+      if (entityButton) {
+        currentEntityId = entityButton.dataset.entity;
+        selectedCandidateIndex = 0;
+        selectedMode = defaultModeFor(activeEntity());
+        selectedCandidateIndex = bestCandidateIndexForMode(activeEntity(), selectedMode);
+        render();
+        return;
+      }
+
+      const modeButton = event.target.closest("[data-mode]");
+      if (modeButton) {
+        selectedMode = modeButton.dataset.mode;
+        selectedCandidateIndex = bestCandidateIndexForMode(activeEntity(), selectedMode);
+        renderFocus();
+        renderCandidates();
+        return;
+      }
+
+      const candidateButton = event.target.closest("[data-candidate]");
+      if (candidateButton) {
+        selectedCandidateIndex = Number(candidateButton.dataset.candidate);
+        renderCandidates();
+      }
+    });
+
+    generateBtn.addEventListener("click", () => {
+      const previous = generateBtn.textContent;
+      generateBtn.textContent = "Generating...";
+      generateBtn.disabled = true;
+      window.setTimeout(() => {
+        generateBtn.textContent = previous;
+        generateBtn.disabled = false;
+        renderCandidates();
+      }, 650);
+    });
+
+    applyBtn.addEventListener("click", () => {
+      const candidate = activeCandidate();
+      if (!candidate) return;
+      alert(`Wireframe commit preview:\n\n${candidate.title}\n\nThis would open the real impact preview before deterministic apply.`);
+    });
+
+    render();
+  </script>
+</body>
+</html>

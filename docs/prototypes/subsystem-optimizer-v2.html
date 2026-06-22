@@ -536,6 +536,43 @@
       line-height: 1.45;
     }
 
+    .fact-review {
+      display: grid;
+      gap: 8px;
+      min-width: 420px;
+    }
+
+    .fact-statement {
+      font-size: 14px;
+      line-height: 1.45;
+      color: var(--ink);
+    }
+
+    .fact-meta {
+      display: flex;
+      flex-wrap: wrap;
+      gap: 6px;
+      align-items: center;
+    }
+
+    .fact-note {
+      color: var(--muted);
+      font-size: 12px;
+      line-height: 1.45;
+    }
+
+    .fact-evidence {
+      max-width: 360px;
+      color: var(--ink);
+      font-size: 12px;
+      line-height: 1.45;
+    }
+
+    .fact-technical {
+      min-width: 300px;
+      max-width: 520px;
+    }
+
     .mini-list {
       display: grid;
       gap: 5px;
@@ -643,8 +680,54 @@
       letter-spacing: 0.06em;
     }
 
+    .table th:first-child,
+    .table td:first-child {
+      position: sticky;
+      left: 0;
+      z-index: 2;
+      background: white;
+      box-shadow: 1px 0 0 var(--line);
+    }
+
+    .table th:last-child,
+    .table td:last-child {
+      position: sticky;
+      right: 0;
+      z-index: 2;
+      background: white;
+      box-shadow: -1px 0 0 var(--line);
+    }
+
     .table tr.row-active {
       background: #eff6ff;
+    }
+
+    .grid-input {
+      width: 100%;
+      min-width: 96px;
+      border: 1px solid transparent;
+      border-radius: 7px;
+      padding: 6px 7px;
+      background: transparent;
+      color: var(--text);
+      font: inherit;
+    }
+
+    .grid-input:focus {
+      border-color: #93c5fd;
+      background: #eff6ff;
+      outline: none;
+      box-shadow: 0 0 0 2px rgba(37, 99, 235, 0.12);
+    }
+
+    .grid-input.dirty {
+      border-color: #f59e0b;
+      background: #fffbeb;
+    }
+
+    .grid-input[disabled] {
+      color: var(--muted);
+      cursor: not-allowed;
     }
 
     .row-editor-grid {
@@ -660,6 +743,77 @@
       border-radius: 10px;
       padding: 10px;
       font-size: 12px;
+    }
+
+    .workflow-strip {
+      display: grid;
+      grid-template-columns: repeat(4, minmax(0, 1fr));
+      gap: 8px;
+      margin-bottom: 12px;
+    }
+
+    .workflow-step {
+      border: 1px solid var(--line);
+      border-radius: 10px;
+      padding: 9px;
+      background: #f8fafc;
+      color: var(--muted);
+      font-size: 11px;
+      font-weight: 800;
+      line-height: 1.35;
+    }
+
+    .workflow-step strong {
+      display: block;
+      margin-bottom: 2px;
+      color: var(--ink);
+      font-size: 12px;
+    }
+
+    .workflow-step.active {
+      border-color: #93c5fd;
+      background: #eff6ff;
+      color: #1d4ed8;
+    }
+
+    .table-wrap {
+      overflow: auto;
+      border: 1px solid var(--line);
+      border-radius: 10px;
+      background: white;
+    }
+
+    .section-note {
+      display: flex;
+      align-items: center;
+      gap: 8px;
+      border: 1px solid #dbeafe;
+      border-radius: 10px;
+      padding: 9px 10px;
+      background: #eff6ff;
+      color: #1e3a8a;
+      font-size: 12px;
+      line-height: 1.4;
+    }
+
+    details.advanced-panel {
+      border: 1px solid var(--line);
+      border-radius: 10px;
+      background: #f8fafc;
+    }
+
+    details.advanced-panel summary {
+      cursor: pointer;
+      padding: 10px 12px;
+      color: var(--muted);
+      font-size: 12px;
+      font-weight: 850;
+    }
+
+    details.advanced-panel .advanced-body {
+      border-top: 1px solid var(--line);
+      padding: 10px;
+      background: white;
     }
 
     .json-box {
@@ -714,9 +868,9 @@
       <div class="toolbar">
         <div class="mode-toggle">
           <button class="btn active" data-app-mode="optimizer">Setup/Run</button>
+          <button class="btn" data-app-mode="observations">Evidence Intake</button>
           <button class="btn" data-app-mode="metrics">Metrics</button>
-          <button class="btn" data-app-mode="manifests">Manifests</button>
-          <button class="btn" data-app-mode="observations">Observations</button>
+          <button class="btn" data-app-mode="manifests">Facts</button>
           <button class="btn" data-app-mode="inspector">Inspector</button>
         </div>
         <div class="field">
@@ -990,12 +1144,9 @@
                 <thead>
                   <tr>
                     <th>Status</th>
-                    <th>Subject</th>
-                    <th>Predicate</th>
-                    <th>Value</th>
-                    <th>Severity</th>
+                    <th>Fact for review</th>
                     <th>Evidence</th>
-                    <th>Confidence</th>
+                    <th>What will be ingested</th>
                     <th>Actions</th>
                   </tr>
                 </thead>
@@ -1051,15 +1202,21 @@
         <section class="panel">
           <div class="panel-head">
             <div>
-              <div class="panel-title">Observation Source Upload</div>
-              <div class="panel-subtitle">Document/CSV -> extraction groups -> review matrix -> bulk commit.</div>
+              <div class="panel-title">Evidence Source</div>
+              <div class="panel-subtitle">Upload once. The backend routes prose into reviewable facts and tables/rows into observations.</div>
             </div>
             <span class="badge gray" id="observationBatchState">idle</span>
           </div>
           <div class="panel-body">
+            <div class="workflow-strip">
+              <div class="workflow-step active"><strong>1 Upload</strong>PDF, image, CSV, or text</div>
+              <div class="workflow-step"><strong>2 Route</strong>Facts + observation blocks</div>
+              <div class="workflow-step"><strong>3 Review</strong>Edit facts, cells, and metrics</div>
+              <div class="workflow-step"><strong>4 Commit</strong>Write facts + observations</div>
+            </div>
             <div class="list">
               <div class="field">
-                <label for="observationFile">Upload observation source</label>
+                <label for="observationFile">Upload evidence source</label>
                 <input id="observationFile" type="file" accept=".csv,text/csv,.txt,text/plain,.pdf,application/pdf,.png,image/png,.jpg,.jpeg,image/jpeg,.webp,image/webp" />
               </div>
               <div class="field">
@@ -1083,81 +1240,135 @@
                 <textarea id="observationNotes" placeholder="Optional context for extraction/review"></textarea>
               </div>
               <div class="toolbar">
-                <button class="btn primary" id="uploadObservations">Upload source</button>
-                <button class="btn" id="approveObservationMapping">Approve mapping</button>
-                <button class="btn" id="loadObservationRows">Load candidate rows</button>
-                <button class="btn primary" id="commitObservations">Commit batch</button>
+                <button class="btn primary" id="uploadObservations">Upload evidence</button>
+                <button class="btn" id="commitReviewedEvidence">Commit reviewed evidence</button>
+                <button class="btn" id="loadObservationRows">Refresh preview</button>
               </div>
               <div id="observationWarnings" class="list"></div>
               <div id="observationGroups" class="list"></div>
-              <div id="observationSuggestedMetrics" class="list"></div>
             </div>
           </div>
         </section>
 
-        <section class="panel">
-          <div class="panel-head">
-            <div>
-              <div class="panel-title">Proposed Mapping</div>
-              <div class="panel-subtitle">Edit JSON before approving if needed.</div>
-            </div>
-          </div>
-          <div class="panel-body">
-            <textarea id="observationMappingJson" placeholder="Upload CSV to generate mapping"></textarea>
-          </div>
-        </section>
       </section>
 
       <section class="column">
         <section class="panel">
           <div class="panel-head">
             <div>
-              <div class="panel-title">Extraction Review Matrix</div>
-              <div class="panel-subtitle">Verify mapping, values, dates, provenance, and metric approval in one place.</div>
+              <div class="panel-title">Fact Review</div>
+              <div class="panel-subtitle">Owner-readable facts extracted from prose, notes, terms, responsibilities, and constraints.</div>
             </div>
-            <button class="btn" id="refreshObservations">Refresh observations</button>
+            <div class="toolbar">
+              <button class="btn" id="addManualFactFromEvidence">Add fact</button>
+              <button class="btn primary" id="commitEvidenceFacts">Commit facts</button>
+            </div>
           </div>
           <div class="panel-body">
-            <div class="score-grid">
-              <div class="score"><span>Loaded Rows</span><strong id="observationSampleCount">0</strong></div>
-              <div class="score"><span>Quarantined</span><strong id="observationQuarantineCount">0</strong></div>
-              <div class="score"><span>Suggested Roles</span><strong id="observationSuggestedMetricCount">0</strong></div>
-              <div class="score"><span>Needs Review</span><strong id="observationNeedsReviewCount">0</strong></div>
-            </div>
-            <div id="observationSampleScope" class="panel-subtitle" style="margin-top:8px"></div>
-            <div id="observationReadinessPanel" class="list" style="margin-top:10px"></div>
-            <div id="observationCommitSummary" class="list" style="margin-top:10px"></div>
-            <div class="toolbar" style="margin-top:10px">
-              <button class="btn active" data-observation-filter="all">All</button>
-              <button class="btn" data-observation-filter="ready">Ready</button>
-              <button class="btn" data-observation-filter="needs_review">Needs review</button>
-              <button class="btn" data-observation-filter="unknown_metric">Unknown metric</button>
-              <button class="btn" data-observation-filter="quarantined">Quarantined</button>
-              <button class="btn" data-observation-filter="rejected">Rejected</button>
-            </div>
-            <div id="metricUsageList" class="list" style="margin-top:10px"></div>
-            <div style="overflow:auto;margin-top:10px">
+            <div id="evidenceFactSummary" class="list"></div>
+            <div class="table-wrap" style="margin-top:10px">
               <table class="table">
                 <thead>
                   <tr>
-                    <th>Group</th>
-                    <th>Kind</th>
-                    <th>Subject</th>
-                    <th>Role / Metric</th>
-                    <th>Value</th>
-                    <th>Unit/Currency</th>
-                    <th>Date</th>
-                    <th>Dimensions</th>
-                    <th>Source</th>
                     <th>Status</th>
+                    <th>Fact for review</th>
+                    <th>Evidence</th>
+                    <th>What will be ingested</th>
                     <th>Actions</th>
                   </tr>
+                </thead>
+                <tbody id="evidenceFactRows"></tbody>
+              </table>
+            </div>
+          </div>
+        </section>
+
+        <section class="panel">
+          <div class="panel-head">
+            <div>
+              <div class="panel-title">Observation Workbench</div>
+              <div class="panel-subtitle">Editable source tables and note blocks. Rename headers, map metrics, edit cells, then generate/commit observation rows.</div>
+            </div>
+            <div class="toolbar">
+              <button class="btn" id="loadObservationBlocks">Refresh extracted tables</button>
+              <button class="btn primary" id="generateObservationCandidates">Apply mapping</button>
+              <button class="btn primary" id="commitObservations">Commit reviewed table</button>
+            </div>
+          </div>
+          <div class="panel-body">
+            <div id="observationBlockList" class="list"></div>
+            <div class="toolbar" style="margin-top:10px">
+              <button class="btn" id="addObservationBlockColumn">Add source column</button>
+              <select id="observationBlockColumnRemove"></select>
+              <button class="btn danger" id="removeObservationBlockColumn">Remove source column</button>
+              <button class="btn primary" id="saveObservationBlockGrid">Save source table edits</button>
+            </div>
+            <div class="section-note" style="margin-top:10px">
+              This is the review table. Edit rows and columns here, approve or map metrics, then commit. The backend-generated observation rows are kept in Advanced for audit/debug.
+            </div>
+            <div class="table-wrap" style="margin-top:10px">
+              <table class="table">
+                <thead><tr id="observationBlockHeaders"></tr></thead>
+                <tbody id="observationBlockRows"></tbody>
+              </table>
+            </div>
+            <div class="panel-head" style="margin:14px -12px 0;border-top:1px solid var(--line);border-bottom:1px solid var(--line);box-shadow:none">
+              <div>
+                <div class="panel-title">Metric Mapping</div>
+                <div class="panel-subtitle">Approve new metric columns or map them to existing metrics before commit.</div>
+              </div>
+            </div>
+            <div id="observationSuggestedMetrics" class="list" style="margin-top:12px"></div>
+            <details class="advanced-panel" style="margin-top:10px">
+              <summary>Advanced mapping JSON</summary>
+              <div class="advanced-body">
+                <textarea id="observationMappingJson" placeholder="Upload a source to generate mapping"></textarea>
+                <div class="toolbar" style="margin-top:8px">
+                  <button class="btn" id="approveObservationMapping">Approve edited mapping</button>
+                </div>
+              </div>
+            </details>
+            <div class="score-grid" style="margin-top:12px">
+              <div class="score"><span>Rows ready</span><strong id="observationSampleCount">0</strong></div>
+              <div class="score"><span>Quarantined</span><strong id="observationQuarantineCount">0</strong></div>
+              <div class="score"><span>Suggested metrics</span><strong id="observationSuggestedMetricCount">0</strong></div>
+              <div class="score"><span>Needs review</span><strong id="observationNeedsReviewCount">0</strong></div>
+            </div>
+            <div id="observationSampleScope" class="panel-subtitle" style="margin-top:8px"></div>
+            <div id="observationReadinessPanel" class="list" style="margin-top:10px"></div>
+            <div id="metricUsageList" class="list" style="margin-top:10px"></div>
+            <div id="observationCommitSummary" class="list" style="margin-top:10px"></div>
+            <details class="advanced-panel" style="margin-top:12px">
+              <summary>Advanced: generated observation rows</summary>
+              <div class="advanced-body">
+                <div class="toolbar">
+                  <button class="btn" id="refreshObservations">Refresh observations</button>
+                  <button class="btn primary" id="addObservationRow">Add normalized row</button>
+                  <button class="btn primary" id="saveObservationGrid">Save normalized changes</button>
+                  <button class="btn" id="addObservationColumn">Add normalized column</button>
+                  <select id="observationColumnRemove"></select>
+                  <button class="btn danger" id="removeObservationColumn">Remove normalized column</button>
+                  <button class="btn" data-observation-bulk-action="accept">Accept selected</button>
+                  <button class="btn danger" data-observation-bulk-action="reject">Reject selected</button>
+                  <button class="btn active" data-observation-filter="all">All</button>
+                  <button class="btn" data-observation-filter="ready">Ready</button>
+                  <button class="btn" data-observation-filter="needs_review">Needs review</button>
+                  <button class="btn" data-observation-filter="unknown_metric">Unknown metric</button>
+                  <button class="btn" data-observation-filter="quarantined">Quarantined</button>
+                  <button class="btn" data-observation-filter="rejected">Rejected</button>
+                </div>
+            <div id="observationGroupEditor" class="list" style="margin-top:10px"></div>
+            <div id="observationRowEditor" class="list" style="margin-top:10px"></div>
+            <div class="table-wrap" style="margin-top:10px">
+              <table class="table">
+                <thead>
+                  <tr id="observationReviewHeaders"></tr>
                 </thead>
                 <tbody id="observationReviewRows"></tbody>
               </table>
             </div>
-            <div id="observationGroupEditor" class="list" style="margin-top:10px"></div>
-            <div id="observationRowEditor" class="list" style="margin-top:10px"></div>
+              </div>
+            </details>
           </div>
         </section>
 
@@ -1165,7 +1376,7 @@
           <div class="panel-head">
             <div>
               <div class="panel-title">Committed Observations</div>
-              <div class="panel-subtitle">Rows currently visible to future derivation/aggregation.</div>
+              <div class="panel-subtitle">History already written to the observation store. This is separate from the current upload.</div>
             </div>
           </div>
           <div class="panel-body">
@@ -1241,11 +1452,20 @@
       appMode: "optimizer",
       manifests: [],
       activeManifest: null,
+      evidenceIntake: null,
       metrics: [],
       selectedMetricKey: null,
       observationBatch: null,
+      observationBlocks: [],
+      activeObservationBlockId: null,
+      observationBlockRows: [],
+      observationBlockCellDrafts: {},
+      observationBlockColumnDrafts: {},
       observationSample: [],
       activeObservationRowId: null,
+      selectedObservationRowIds: [],
+      observationCustomColumns: [],
+      observationCellDrafts: {},
       observations: [],
       observationFilter: "all",
       observationCommitSummary: null,
@@ -1892,6 +2112,7 @@
       try {
         await fetchJson(url, { method: "PATCH", body: JSON.stringify(body) });
         await loadManifest(manifest.id);
+        renderObservationsWorkspace();
         setStatus(`Candidate ${action} saved.`);
       } catch (error) {
         debugLog("updateManifestCandidate error", error);
@@ -1942,6 +2163,7 @@
       try {
         await fetchJson(url, { method: "POST", body: JSON.stringify({ ...JSON.parse(raw), reviewed_by: "prototype_user" }) });
         await loadManifest(manifest.id);
+        renderObservationsWorkspace();
         setStatus("Manual fact added.");
       } catch (error) {
         setStatus(`Could not add manual fact: ${error.message}.`);
@@ -1965,6 +2187,7 @@
         state.activeManifest = normalizeManifest(payload.manifest);
         await loadManifests();
         await loadManifest(state.activeManifest.id);
+        renderObservationsWorkspace();
         setStatus(`Manifest committed. ${payload.facts_count} facts are now visible to optimizer discovery.`);
       } catch (error) {
         setStatus(`Could not commit manifest: ${error.message}.`);
@@ -2107,12 +2330,158 @@
       return value === null || value === undefined || value === "" ? "-" : value;
     }
 
+    function activeObservationBlock() {
+      return (state.observationBlocks || []).find((block) => block.id === state.activeObservationBlockId) || state.observationBlocks[0] || null;
+    }
+
+    function blockColumns(block = activeObservationBlock()) {
+      const fromBlock = (block?.columns || []).map((column) => typeof column === "string" ? { key: column, label: column } : column).filter((column) => column?.key);
+      const keys = new Map(fromBlock.map((column) => [column.key, { ...column, label: column.label || column.key }]));
+      for (const row of state.observationBlockRows || []) {
+        for (const key of Object.keys(row.normalized_cells || row.raw_cells || {})) {
+          if (!key.startsWith("__") && !keys.has(key)) keys.set(key, { key, label: key });
+        }
+      }
+      return [...keys.values()];
+    }
+
+    function blockCellDraftKey(rowId, columnKey) {
+      return `${rowId}::${columnKey}`;
+    }
+
+    function blockColumnDraftKey(columnKey, field) {
+      return `${columnKey}::${field}`;
+    }
+
+    function batchColumnMapping(columnKey) {
+      return state.observationBatch?.mapping?.columns?.[columnKey] || {};
+    }
+
+    function blockColumnLabel(column) {
+      const draftKey = blockColumnDraftKey(column.key, "label");
+      if (Object.prototype.hasOwnProperty.call(state.observationBlockColumnDrafts, draftKey)) {
+        return state.observationBlockColumnDrafts[draftKey];
+      }
+      return column.label || column.key;
+    }
+
+    function blockColumnMetric(column) {
+      const draftKey = blockColumnDraftKey(column.key, "metric_key");
+      if (Object.prototype.hasOwnProperty.call(state.observationBlockColumnDrafts, draftKey)) {
+        return state.observationBlockColumnDrafts[draftKey];
+      }
+      return column.metric_key || batchColumnMapping(column.key).metric_key || "";
+    }
+
+    function isDirtyBlockColumn(column) {
+      return Object.prototype.hasOwnProperty.call(state.observationBlockColumnDrafts, blockColumnDraftKey(column.key, "label"))
+        || Object.prototype.hasOwnProperty.call(state.observationBlockColumnDrafts, blockColumnDraftKey(column.key, "metric_key"));
+    }
+
+    function blockCellValue(row, column) {
+      const draftKey = blockCellDraftKey(row.id, column.key);
+      if (Object.prototype.hasOwnProperty.call(state.observationBlockCellDrafts, draftKey)) {
+        return state.observationBlockCellDrafts[draftKey];
+      }
+      const cells = row.normalized_cells || row.raw_cells || {};
+      return normalizeCellValue(cells[column.key]);
+    }
+
+    function isDirtyBlockCell(row, column) {
+      const draftKey = blockCellDraftKey(row.id, column.key);
+      if (!Object.prototype.hasOwnProperty.call(state.observationBlockCellDrafts, draftKey)) return false;
+      const cells = row.normalized_cells || row.raw_cells || {};
+      return state.observationBlockCellDrafts[draftKey] !== normalizeCellValue(cells[column.key]);
+    }
+
+    function renderObservationBlocks() {
+      const block = activeObservationBlock();
+      const locked = observationBatchLocked();
+      el("observationBlockList").innerHTML = state.observationBlocks.length ? state.observationBlocks.map((item) => `
+        <button class="candidate ${item.id === block?.id ? "active" : ""}" data-observation-block="${esc(item.id)}" style="text-align:left">
+          <div class="candidate-head">
+            <h3>${esc(item.title || item.block_key)}</h3>
+            <span class="badge ${item.block_type === "table" ? "blue" : "amber"}">${esc(item.block_type || "block")}</span>
+          </div>
+          <p>${esc(item.block_key)} | ${percent(item.confidence ?? 0)} | ${esc(item.status || "active")}</p>
+        </button>
+      `).join("") : `<div class="signal"><span class="dot warn"></span><div><strong>No source table loaded</strong><span>Upload a source to extract tables, bullet lists, or note blocks into an editable workbench.</span></div></div>`;
+
+      const columns = blockColumns(block);
+      el("observationBlockHeaders").innerHTML = block ? `
+        ${columns.map((column) => `
+          <th>
+            <input class="grid-input${isDirtyBlockColumn(column) ? " dirty" : ""}" data-observation-block-column="${esc(column.key)}" data-observation-block-column-field="label" value="${esc(blockColumnLabel(column))}" ${locked ? "disabled" : ""} />
+            <select class="grid-input${isDirtyBlockColumn(column) ? " dirty" : ""}" data-observation-block-column="${esc(column.key)}" data-observation-block-column-field="metric_key" ${locked ? "disabled" : ""}>
+              ${observationMetricOptions(blockColumnMetric(column)).replace("No metric", "Not a metric")}
+            </select>
+          </th>
+        `).join("")}
+        <th>Status</th>
+      ` : "";
+      el("observationBlockRows").innerHTML = block && state.observationBlockRows.length ? state.observationBlockRows.map((row) => `
+        <tr>
+          ${columns.map((column) => `
+            <td><input class="grid-input${isDirtyBlockCell(row, column) ? " dirty" : ""}" data-observation-block-cell-row="${esc(row.id)}" data-observation-block-cell-column="${esc(column.key)}" value="${esc(blockCellValue(row, column))}" ${locked || row.status === "deleted" ? "disabled" : ""} /></td>
+          `).join("")}
+          <td><span class="badge ${row.status === "deleted" ? "red" : row.edited ? "amber" : "green"}">${esc(row.status || "active")}${row.edited ? " / edited" : ""}</span></td>
+        </tr>
+      `).join("") : `<tr><td colspan="${Math.max(columns.length + 1, 1)}">No rows loaded for this source block.</td></tr>`;
+
+      const customSelector = el("observationBlockColumnRemove");
+      if (customSelector) {
+        customSelector.innerHTML = columns.length ? columns.map((column) => `<option value="${esc(column.key)}">${esc(column.label || column.key)}</option>`).join("") : `<option value="">No columns</option>`;
+        customSelector.disabled = locked || !columns.length;
+      }
+      const saveButton = el("saveObservationBlockGrid");
+      if (saveButton) {
+        const dirtyCount = Object.keys(state.observationBlockCellDrafts || {}).length + Object.keys(state.observationBlockColumnDrafts || {}).length;
+        saveButton.textContent = dirtyCount ? `Save table edits (${dirtyCount})` : "Save table edits";
+        saveButton.disabled = locked || dirtyCount === 0;
+      }
+      const generateButton = el("generateObservationCandidates");
+      if (generateButton) {
+        generateButton.disabled = locked || !state.observationBlocks.length;
+        generateButton.textContent = state.observationBlocks.length > 1 ? "Build preview from all tables" : "Build observation preview";
+      }
+      const addButton = el("addObservationBlockColumn");
+      if (addButton) addButton.disabled = locked || !block;
+      const removeButton = el("removeObservationBlockColumn");
+      if (removeButton) removeButton.disabled = locked || !block || !columns.length;
+    }
+
+    function updateObservationBlockSaveButton() {
+      const saveButton = el("saveObservationBlockGrid");
+      if (!saveButton) return;
+      const dirtyCount = Object.keys(state.observationBlockCellDrafts || {}).length + Object.keys(state.observationBlockColumnDrafts || {}).length;
+      saveButton.textContent = dirtyCount ? `Save table edits (${dirtyCount})` : "Save table edits";
+      saveButton.disabled = observationBatchLocked() || dirtyCount === 0;
+    }
+
     function activeObservationRow() {
+      if (state.activeObservationRowId === "__new__") {
+        const groupId = state.observationSample[0]?.source_group_id || "manual";
+        return {
+          id: "__new__",
+          source_group_id: groupId,
+          status: "draft",
+          origin: "manual",
+          edited: true,
+          observation_kind: "metric_observation",
+          subject_type: "mpn",
+          date_quality: "exact",
+          dimensions: {},
+          source_excerpt: "Manually added during observation review"
+        };
+      }
       return (state.observationSample || []).find((row) => row.id === state.activeObservationRowId) || null;
     }
 
     function observationMetricOptions(selected = "") {
       const keys = new Set((state.metrics || []).map((metric) => metric.key));
+      for (const metric of state.observationBatch?.metadata?.suggested_metrics || []) {
+        if (metric.key) keys.add(metric.key);
+      }
       for (const row of state.observationSample || []) {
         if (row.metric_key || row.metric) keys.add(row.metric_key || row.metric);
       }
@@ -2172,7 +2541,177 @@
       if (state.observationFilter === "rejected") {
         return rows.filter((item) => item.status === "rejected");
       }
-      return rows;
+      return rows.filter((item) => item.status !== "rejected");
+    }
+
+    const OBSERVATION_BASE_COLUMNS = [
+      { key: "source_group_id", label: "Group", type: "text" },
+      { key: "observation_kind", label: "Kind", type: "select", options: ["metric_observation", "state_fact", "constraint", "assumption", "commercial_term", "note"] },
+      { key: "subject_type", label: "Subject Type", type: "text" },
+      { key: "subject", label: "Subject", type: "text" },
+      { key: "mpn", label: "MPN", type: "text" },
+      { key: "manufacturer", label: "Manufacturer", type: "text" },
+      { key: "supplier", label: "Supplier", type: "text" },
+      { key: "semantic_role", label: "Role", type: "text" },
+      { key: "metric_key", label: "Metric", type: "metric" },
+      { key: "value_numeric", label: "Numeric Value", type: "number" },
+      { key: "value_text", label: "Text Value", type: "text" },
+      { key: "unit", label: "Unit", type: "text" },
+      { key: "currency", label: "Currency", type: "text" },
+      { key: "observed_at", label: "Date", type: "date" },
+      { key: "date_quality", label: "Date Quality", type: "text" },
+      { key: "source_excerpt", label: "Source", type: "text" },
+    ];
+
+    function slugColumnName(value) {
+      return String(value || "")
+        .trim()
+        .toLowerCase()
+        .replace(/[^a-z0-9_]+/g, "_")
+        .replace(/^_+|_+$/g, "");
+    }
+
+    function observationDimensionColumnKeys() {
+      const keys = new Set(state.observationCustomColumns || []);
+      for (const row of state.observationSample || []) {
+        for (const key of Object.keys(row.dimensions || {})) {
+          if (key) keys.add(key);
+        }
+      }
+      return [...keys].sort();
+    }
+
+    function observationColumns() {
+      return [
+        ...OBSERVATION_BASE_COLUMNS,
+        ...observationDimensionColumnKeys().map((key) => ({
+          key: `dimensions.${key}`,
+          dimensionKey: key,
+          label: key,
+          type: "text",
+          custom: true,
+        })),
+      ];
+    }
+
+    function observationCellKey(rowId, columnKey) {
+      return `${rowId}::${columnKey}`;
+    }
+
+    function normalizeCellValue(value) {
+      if (value === null || value === undefined) return "";
+      if (typeof value === "object") return JSON.stringify(value);
+      return String(value);
+    }
+
+    function rowCellValue(row, column) {
+      const draftKey = observationCellKey(row.id, column.key);
+      if (Object.prototype.hasOwnProperty.call(state.observationCellDrafts, draftKey)) {
+        return state.observationCellDrafts[draftKey];
+      }
+      if (column.dimensionKey) {
+        return normalizeCellValue((row.dimensions || {})[column.dimensionKey]);
+      }
+      if (column.key === "observed_at") {
+        return normalizeCellValue(row.observed_at).slice(0, 10);
+      }
+      return normalizeCellValue(row[column.key]);
+    }
+
+    function originalCellValue(row, column) {
+      if (column.dimensionKey) return normalizeCellValue((row.dimensions || {})[column.dimensionKey]);
+      if (column.key === "observed_at") return normalizeCellValue(row.observed_at).slice(0, 10);
+      return normalizeCellValue(row[column.key]);
+    }
+
+    function isDirtyCell(row, column) {
+      const key = observationCellKey(row.id, column.key);
+      return Object.prototype.hasOwnProperty.call(state.observationCellDrafts, key)
+        && state.observationCellDrafts[key] !== originalCellValue(row, column);
+    }
+
+    function setObservationCellDraft(rowId, columnKey, value) {
+      const key = observationCellKey(rowId, columnKey);
+      state.observationCellDrafts[key] = value;
+    }
+
+    function clearObservationDraftsForRows(rowIds) {
+      const ids = new Set(rowIds || []);
+      state.observationCellDrafts = Object.fromEntries(
+        Object.entries(state.observationCellDrafts).filter(([key]) => !ids.has(key.split("::")[0])),
+      );
+    }
+
+    function coerceGridCellValue(column, value) {
+      const trimmed = String(value ?? "").trim();
+      if (column.type === "number") return trimmed === "" ? null : Number(trimmed);
+      if (column.type === "date") return trimmed || null;
+      if (column.dimensionKey) return trimmed || null;
+      return trimmed || null;
+    }
+
+    function buildPatchFromGridRow(row, columns) {
+      const patch = {};
+      let dimensions = { ...(row.dimensions || {}) };
+      let dimensionsTouched = false;
+      for (const column of columns) {
+        if (!isDirtyCell(row, column)) continue;
+        const value = coerceGridCellValue(column, rowCellValue(row, column));
+        if (column.dimensionKey) {
+          dimensionsTouched = true;
+          if (value === null || value === "") {
+            delete dimensions[column.dimensionKey];
+          } else {
+            dimensions[column.dimensionKey] = value;
+          }
+        } else {
+          patch[column.key] = value;
+        }
+      }
+      if (dimensionsTouched) patch.dimensions = dimensions;
+      return patch;
+    }
+
+    function renderGridCell(row, column, locked) {
+      const value = rowCellValue(row, column);
+      const dirtyClass = isDirtyCell(row, column) ? " dirty" : "";
+      if (column.type === "select") {
+        return `
+          <select class="grid-input${dirtyClass}" data-observation-cell-row="${esc(row.id)}" data-observation-cell-column="${esc(column.key)}" ${locked ? "disabled" : ""}>
+            ${(column.options || []).map((option) => `<option value="${esc(option)}" ${option === value ? "selected" : ""}>${esc(option)}</option>`).join("")}
+          </select>
+        `;
+      }
+      if (column.type === "metric") {
+        return `
+          <select class="grid-input${dirtyClass}" data-observation-cell-row="${esc(row.id)}" data-observation-cell-column="${esc(column.key)}" ${locked ? "disabled" : ""}>
+            ${observationMetricOptions(value)}
+          </select>
+        `;
+      }
+      return `
+        <input class="grid-input${dirtyClass}" data-observation-cell-row="${esc(row.id)}" data-observation-cell-column="${esc(column.key)}" type="${column.type === "number" ? "number" : column.type === "date" ? "date" : "text"}" value="${esc(value)}" ${locked ? "disabled" : ""} />
+      `;
+    }
+
+    function renderObservationColumnControls(columns) {
+      const customColumns = columns.filter((column) => column.custom);
+      const selector = el("observationColumnRemove");
+      if (!selector) return;
+      selector.innerHTML = customColumns.length
+        ? customColumns.map((column) => `<option value="${esc(column.dimensionKey)}">${esc(column.label)}</option>`).join("")
+        : `<option value="">No custom columns</option>`;
+      selector.disabled = !customColumns.length || observationBatchLocked();
+      const removeButton = el("removeObservationColumn");
+      if (removeButton) removeButton.disabled = !customColumns.length || observationBatchLocked();
+      const saveButton = el("saveObservationGrid");
+      if (saveButton) {
+        const dirtyCount = Object.keys(state.observationCellDrafts || {}).length;
+        saveButton.textContent = dirtyCount ? `Save grid changes (${dirtyCount})` : "Save grid changes";
+        saveButton.disabled = observationBatchLocked() || dirtyCount === 0;
+      }
+      const addButton = el("addObservationColumn");
+      if (addButton) addButton.disabled = observationBatchLocked();
     }
 
     function renderMetricUsage(batch) {
@@ -2226,7 +2765,7 @@
       ` : `
         <div class="signal">
           <span class="dot good"></span>
-          <div><strong>Commit readiness</strong><span>Candidate rows are ready for commit.</span></div>
+          <div><strong>Commit readiness</strong><span>Observation preview rows are ready for commit.</span></div>
         </div>
       `;
     }
@@ -2250,6 +2789,7 @@
             <label class="field"><span>Metric (optional)</span><select id="observationGroupMetric" ${locked ? "disabled" : ""}><option value="">Keep metric</option>${observationMetricOptions()}</select></label>
             <label class="field"><span>Currency</span><input id="observationGroupCurrency" placeholder="USD" ${locked ? "disabled" : ""} /></label>
             <label class="field"><span>Observed at</span><input id="observationGroupObservedAt" type="date" ${locked ? "disabled" : ""} /></label>
+            <label class="field"><span>Overwrite edited rows</span><select id="observationGroupForce" ${locked ? "disabled" : ""}><option value="false">No, preserve manual edits</option><option value="true">Yes, force update</option></select></label>
             <button class="btn" id="applyObservationGroupEdit" ${locked ? "disabled" : ""}>Apply group edit</button>
           </div>
           ${locked ? `<div class="locked-note" style="margin-top:8px">This batch is committed. Group edits are locked; upload a new batch to revise observations.</div>` : ""}
@@ -2260,14 +2800,20 @@
     function renderObservationRowEditor() {
       const row = activeObservationRow();
       if (!row) {
-        el("observationRowEditor").innerHTML = "";
+        el("observationRowEditor").innerHTML = `
+          <div class="signal">
+            <span class="dot warn"></span>
+            <div><strong>No row selected</strong><span>Click Edit on a row, or use Add row to create a missing observation before commit.</span></div>
+          </div>
+        `;
         return;
       }
-      const locked = observationBatchLocked() || row.locked;
+      const isNew = row.id === "__new__";
+      const locked = !isNew && (observationBatchLocked() || row.locked);
       el("observationRowEditor").innerHTML = `
         <div class="candidate">
           <div class="candidate-head">
-            <h3>Row editor</h3>
+            <h3>${isNew ? "Add observation row" : "Observation row editor"}</h3>
             <span class="badge ${locked ? "gray" : row.status === "quarantined" ? "red" : row.status === "needs_review" ? "amber" : "blue"}">${esc(locked ? "locked" : row.status || "editable")}</span>
           </div>
           <p>${esc(row.reason ? `Validation: ${row.reason}` : "Validation: ready")}</p>
@@ -2275,6 +2821,8 @@
             <label class="field"><span>Subject type</span><input id="obsEditSubjectType" value="${esc(row.subject_type || "")}" ${locked ? "disabled" : ""} /></label>
             <label class="field"><span>Subject</span><input id="obsEditSubject" value="${esc(row.subject || "")}" ${locked ? "disabled" : ""} /></label>
             <label class="field"><span>MPN</span><input id="obsEditMpn" value="${esc(row.mpn || "")}" ${locked ? "disabled" : ""} /></label>
+            <label class="field"><span>Manufacturer</span><input id="obsEditManufacturer" value="${esc(row.manufacturer || "")}" ${locked ? "disabled" : ""} /></label>
+            <label class="field"><span>Supplier</span><input id="obsEditSupplier" value="${esc(row.supplier || "")}" ${locked ? "disabled" : ""} /></label>
             <label class="field"><span>Kind</span><select id="obsEditKind" ${locked ? "disabled" : ""}>${observationKindOptions(row.observation_kind || "metric_observation")}</select></label>
             <label class="field"><span>Role</span><input id="obsEditRole" value="${esc(row.semantic_role || "")}" ${locked ? "disabled" : ""} /></label>
             <label class="field"><span>Metric (optional)</span><select id="obsEditMetric" ${locked ? "disabled" : ""}>${observationMetricOptions(row.metric_key || row.metric || "")}</select></label>
@@ -2283,6 +2831,7 @@
             <label class="field"><span>Unit</span><input id="obsEditUnit" value="${esc(row.unit || "")}" ${locked ? "disabled" : ""} /></label>
             <label class="field"><span>Currency</span><input id="obsEditCurrency" value="${esc(row.currency || "")}" ${locked ? "disabled" : ""} /></label>
             <label class="field"><span>Observed at</span><input id="obsEditObservedAt" type="date" value="${esc((row.observed_at || "").slice(0, 10))}" ${locked ? "disabled" : ""} /></label>
+            <label class="field"><span>Date quality</span><input id="obsEditDateQuality" value="${esc(row.date_quality || "")}" ${locked ? "disabled" : ""} /></label>
           </div>
           <div class="field" style="margin-top:8px">
             <label>Dimensions JSON</label>
@@ -2294,9 +2843,9 @@
           </div>
           ${locked ? `<div class="locked-note" style="margin-top:8px">This row is locked because the batch was committed. Upload a new batch to revise it.</div>` : ""}
           <div class="toolbar" style="margin-top:8px">
-            <button class="btn primary" id="saveObservationRow" ${locked ? "disabled" : ""}>Save row</button>
-            <button class="btn" data-observation-row-action="accept" data-row-id="${esc(row.id)}" ${locked ? "disabled" : ""}>Accept</button>
-            <button class="btn danger" data-observation-row-action="reject" data-row-id="${esc(row.id)}" ${locked ? "disabled" : ""}>Reject</button>
+            <button class="btn primary" id="saveObservationRow" ${locked ? "disabled" : ""}>${isNew ? "Create row" : "Save row"}</button>
+            ${isNew ? "" : `<button class="btn" data-observation-row-action="accept" data-row-id="${esc(row.id)}" ${locked ? "disabled" : ""}>Accept</button>
+            <button class="btn danger" data-observation-row-action="reject" data-row-id="${esc(row.id)}" ${locked ? "disabled" : ""}>Reject</button>`}
             <button class="btn" data-observation-row-action="close" data-row-id="${esc(row.id)}">Close</button>
           </div>
         </div>
@@ -2304,26 +2853,25 @@
     }
 
     function renderObservationReviewMatrix(batch) {
-      const groups = observationGroupMap(batch);
       const suggested = metricStatusMap(batch);
       const rows = filteredObservationRows(batch);
+      const columns = observationColumns();
+      renderObservationColumnControls(columns);
+      el("observationReviewHeaders").innerHTML = `
+        <th>Select</th>
+        ${columns.map((column) => `<th>${esc(column.label)}</th>`).join("")}
+        <th>Status</th>
+        <th>Actions</th>
+      `;
       el("observationReviewRows").innerHTML = rows.length ? rows.map((item) => {
         const metricKey = String(item.metric || item.metric_key || "").toLowerCase();
         const metric = suggested.get(metricKey);
         const [tone, status] = observationStatus(item, metric);
-        const group = groups.get(item.source_group_id || item.source?.source_group_id || "grp-001");
         const rowLocked = observationBatchLocked(batch) || item.locked;
         return `
           <tr class="${item.id === state.activeObservationRowId ? "row-active" : ""}">
-            <td><strong>${esc(group?.label || item.source_group_id || "grp-001")}</strong><br><span>${esc(group?.kind || item.__kind || "")}</span></td>
-            <td><strong>${esc(item.observation_kind || "metric_observation")}</strong></td>
-            <td><strong>${esc(item.mpn || item.subject || item.manufacturer || "")}</strong><br><span>${esc(item.subject_type || "")}</span></td>
-            <td><strong>${esc(item.semantic_role || item.metric || item.metric_key || "")}</strong><br>${item.metric || item.metric_key ? `<span>${esc(item.metric || item.metric_key || "")}</span>` : ""}${metric ? `<br><span class="badge ${metric.status === "approved" ? "green" : metric.status === "rejected" ? "red" : "amber"}">${esc(metric.status || "pending")}</span>` : ""}</td>
-            <td>${esc(displayOrDash(observationValue(item)))}</td>
-            <td>${esc(displayOrDash([item.unit, item.currency].filter(Boolean).join(" / ")))}</td>
-            <td>${esc(displayOrDash(item.observed_at))}<br><span class="badge ${item.date_quality === "needs_review" || item.date_quality === "missing" ? "amber" : "green"}">${esc(displayOrDash(item.date_quality))}</span></td>
-            <td>${esc(displayOrDash(observationDimensions(item)))}</td>
-            <td>${esc(displayOrDash(observationSource(item)))}</td>
+            <td><input type="checkbox" data-observation-select-row="${esc(item.id || "")}" ${state.selectedObservationRowIds.includes(item.id) ? "checked" : ""} ${rowLocked ? "disabled" : ""} /></td>
+            ${columns.map((column) => `<td>${renderGridCell(item, column, rowLocked)}</td>`).join("")}
             <td><span class="badge ${tone === "red" ? "red" : tone === "amber" ? "amber" : "green"}">${esc(status)}</span></td>
             <td>
               <div class="toolbar">
@@ -2334,7 +2882,7 @@
             </td>
           </tr>
         `;
-      }).join("") : `<tr><td colspan="11">No rows for this filter. Load candidate rows after upload.</td></tr>`;
+      }).join("") : `<tr><td colspan="${columns.length + 3}">No observation rows for this filter. Upload a source, then build the preview from the extracted table.</td></tr>`;
     }
 
     function renderObservationCommitSummary() {
@@ -2354,8 +2902,84 @@
       `;
     }
 
+    function renderEvidenceFactReview() {
+      const manifest = state.activeManifest;
+      const candidates = manifest?.candidates || [];
+      const pending = candidates.filter((item) => item.review_status === "pending").length;
+      const accepted = candidates.filter((item) => item.review_status === "accepted" || item.review_status === "edited").length;
+      const rejected = candidates.filter((item) => item.review_status === "rejected").length;
+      el("evidenceFactSummary").innerHTML = manifest ? `
+        <div class="signal">
+          <span class="dot ${manifest.status === "active" ? "good" : pending ? "warn" : "good"}"></span>
+          <div>
+            <strong>${esc(manifest.name || manifest.source_filename || "Evidence facts")}</strong>
+            <span>${esc(accepted)} accepted | ${esc(pending)} pending | ${esc(rejected)} rejected | ${esc(manifest.manifest_type || "generic")} | ${esc(manifest.scope || "org")}${manifest.scope_id ? `:${esc(manifest.scope_id)}` : ""}</span>
+          </div>
+        </div>
+      ` : `<div class="signal"><span class="dot warn"></span><div><strong>No fact extraction loaded</strong><span>Upload evidence to extract reviewable facts from prose, terms, responsibilities, and notes.</span></div></div>`;
+
+      el("evidenceFactRows").innerHTML = candidates.length ? candidates.map((item) => {
+        const presentation = manifestCandidatePresentation(item);
+        const warnings = factVerifierWarnings(item);
+        const locked = manifest?.status === "active";
+        return `
+        <tr>
+          <td><span class="badge ${item.review_status === "rejected" ? "red" : item.review_status === "pending" ? "amber" : "green"}">${esc(item.review_status)}</span></td>
+          <td>
+            <div class="fact-review">
+              <div class="fact-meta">
+                <span class="badge">${esc(presentation.factType)}</span>
+                <span class="badge">${esc(item.axis || "unknown axis")}</span>
+                <span class="badge ${item.severity === "blocking" || item.severity === "conflict" ? "red" : item.severity === "warning" ? "amber" : "gray"}">${esc(item.severity || "none")}</span>
+                ${warnings.length ? `<span class="badge amber">needs review</span>` : ""}
+              </div>
+              <strong class="fact-statement">${esc(presentation.statement)}</strong>
+              <div class="fact-note">${esc(presentation.why)}</div>
+              <div class="fact-note"><strong>Owner action</strong>: ${esc(presentation.hint)}</div>
+            </div>
+          </td>
+          <td>
+            <div class="fact-evidence">
+              <span>${esc(presentation.evidence)}</span>
+              <div class="fact-meta" style="margin-top:6px">
+                ${presentation.page ? `<span class="badge">page ${esc(presentation.page)}</span>` : ""}
+                ${presentation.section ? `<span class="badge">${esc(presentation.section)}</span>` : ""}
+                <span class="badge">${esc(percent(item.confidence))} confidence</span>
+              </div>
+            </div>
+          </td>
+          <td>
+            <div class="fact-technical">
+              <div class="fact-note"><strong>Subject</strong>: ${esc(presentation.ingest.subject || item.subject || "unknown")} <span class="muted">(${esc(presentation.ingest.subject_type || item.subject_type || "unknown")})</span></div>
+              <div class="fact-note"><strong>Predicate</strong>: ${esc(presentation.ingest.predicate || item.predicate || "fact")}</div>
+              <div class="fact-note"><strong>Value</strong>: ${esc(presentation.ingest.value || factValueSummary(item.value))}</div>
+              <details>
+                <summary>Show structured payload</summary>
+                ${warnings.length ? `<div class="fact-note"><strong>Review notes</strong><ul>${warnings.map((note) => `<li>${esc(note)}</li>`).join("")}</ul></div>` : ""}
+                <pre class="json-box">${esc(JSON.stringify(technicalFactPayload(item), null, 2))}</pre>
+              </details>
+            </div>
+          </td>
+          <td>
+            <div class="toolbar">
+              <button class="btn" data-candidate-action="accept" data-candidate-id="${esc(item.id)}" ${locked ? "disabled" : ""}>Accept</button>
+              <button class="btn" data-candidate-action="edit" data-candidate-id="${esc(item.id)}" ${locked ? "disabled" : ""}>Edit</button>
+              <button class="btn danger" data-candidate-action="reject" data-candidate-id="${esc(item.id)}" ${locked ? "disabled" : ""}>Reject</button>
+            </div>
+          </td>
+        </tr>
+      `;
+      }).join("") : `<tr><td colspan="5">No candidate facts extracted from this source.</td></tr>`;
+      const commitButton = el("commitEvidenceFacts");
+      if (commitButton) {
+        commitButton.disabled = !manifest || manifest.status === "active" || pending > 0;
+        commitButton.textContent = manifest?.status === "active" ? "Facts committed" : pending ? `Commit facts (${pending} pending)` : "Commit facts";
+      }
+    }
+
     function renderObservationsWorkspace() {
       const batch = state.observationBatch;
+      renderEvidenceFactReview();
       el("observationBatchState").textContent = batch?.status || "idle";
       el("observationBatchState").className = `badge ${batch?.status === "committed" ? "green" : batch ? "blue" : "gray"}`;
       if (batch?.mapping && !el("observationMappingJson").value.trim()) {
@@ -2377,7 +3001,8 @@
       `).join("") : "";
       el("observationSuggestedMetrics").innerHTML = "";
       const candidateCounts = batch?.candidate_counts || batch?.metadata?.candidate_row_counts || {};
-      el("observationSampleCount").textContent = String(state.observationSample.length || 0);
+      const activePreviewRows = (state.observationSample || []).filter((item) => item.status !== "rejected");
+      el("observationSampleCount").textContent = String(activePreviewRows.length || 0);
       el("observationQuarantineCount").textContent = String(candidateCounts.quarantined ?? state.observationSample.filter((item) => item.status === "quarantined").length ?? 0);
       const suggestedMetrics = metadata.suggested_metrics || [];
       const needsReviewCount = candidateCounts.needs_review ?? (state.observationSample || []).filter((item) => item.status === "needs_review" || item.review_status === "needs_review" || item.date_quality === "needs_review" || item.date_quality === "missing").length;
@@ -2385,10 +3010,11 @@
       el("observationNeedsReviewCount").textContent = String(needsReviewCount || 0);
       const totalRows = batch?.row_count || Object.values(candidateCounts).reduce((sum, value) => sum + Number(value || 0), 0) || state.observationSample.length || 0;
       el("observationSampleScope").textContent = batch
-        ? `Showing ${state.observationSample.length} persisted candidate rows from ${totalRows} source rows. Commit reads these candidate rows, not a re-derived sample.`
-        : "Upload a source and load candidate rows to review extracted rows.";
+        ? `Showing ${activePreviewRows.length} active observation rows from ${totalRows} source rows. Rejected audit rows are hidden unless you open the Rejected filter.`
+        : "Upload a source to open the editable extraction workbench.";
       renderObservationReadiness(batch);
       renderObservationCommitSummary();
+      renderObservationBlocks();
       renderMetricUsage(batch);
       renderObservationReviewMatrix(batch);
       renderObservationGroupEditor(batch);
@@ -2410,7 +3036,7 @@
     async function uploadObservations() {
       const selectedFile = el("observationFile")?.files?.[0] || null;
       if (!selectedFile) {
-        setStatus("Choose an observation CSV first.");
+        setStatus("Choose an evidence source first.");
         return;
       }
       const form = new FormData();
@@ -2421,40 +3047,62 @@
       const sourceOwner = el("observationSourceOwner").value.trim();
       const sourceType = el("observationSourceType").value.trim();
       const notes = el("observationNotes").value.trim();
+      const designId = selectedDesignId();
       if (receivedAt) form.append("received_at", receivedAt);
       if (sourceOwner) form.append("source_owner", sourceOwner);
       if (sourceType) form.append("source_type", sourceType);
       if (notes) form.append("notes", notes);
-      const url = `${apiBase()}/observations/upload`;
-      setStatus("Uploading observation source...");
+      form.append("scope", designId ? "design" : "org");
+      if (designId) form.append("scope_id", designId);
+      form.append("manifest_type", "generic");
+      const url = `${apiBase()}/evidence-intakes/upload`;
+      setStatus("Uploading evidence source...");
       try {
         const payload = await fetchJson(url, { method: "POST", body: form });
-        state.observationBatch = payload;
+        state.evidenceIntake = payload.intake || null;
+        state.activeManifest = normalizeManifest(payload.manifest);
+        state.observationBatch = payload.observation_batch || payload.batch || payload;
+        state.observationBlocks = [];
+        state.activeObservationBlockId = null;
+        state.observationBlockRows = [];
+        state.observationBlockCellDrafts = {};
+        state.observationBlockColumnDrafts = {};
         state.observationSample = [];
         state.activeObservationRowId = null;
+        state.selectedObservationRowIds = [];
+        state.observationCustomColumns = [];
+        state.observationCellDrafts = {};
         state.observationCommitSummary = null;
-        el("observationMappingJson").value = JSON.stringify(payload.mapping || {}, null, 2);
-        setLastResponse("uploadObservations response", payload);
+        el("observationMappingJson").value = JSON.stringify(state.observationBatch.mapping || {}, null, 2);
+        setLastResponse("uploadEvidence response", payload);
         renderObservationsWorkspace();
-        setStatus(`Observation batch uploaded: ${payload.row_count || 0} rows.`);
+        await loadManifests();
+        if (state.activeManifest?.id) await loadManifest(state.activeManifest.id);
+        await loadObservationBlocks();
+        setStatus("Evidence uploaded. Preparing editable observation preview...");
+        await approveObservationMapping({ silent: true });
+        await generateObservationCandidates({ allBlocks: true, silent: true });
+        renderObservationsWorkspace();
+        const facts = state.activeManifest?.candidates?.length || payload.intake?.routing?.facts || 0;
+        setStatus(`Evidence workbench ready: ${facts} facts and ${state.observationSample.length || 0} observation rows from ${state.observationBatch.row_count || 0} source rows.`);
       } catch (error) {
-        debugLog("uploadObservations error", error);
-        setStatus(`Could not upload observations: ${error.message}.`);
+        debugLog("uploadEvidence error", error);
+        setStatus(`Could not upload evidence: ${error.message}.`);
       }
     }
 
-    async function approveObservationMapping() {
+    async function approveObservationMapping(options = {}) {
       const batch = state.observationBatch;
       if (!batch?.id) {
         setStatus("Upload an observation batch first.");
-        return;
+        return null;
       }
       let mapping;
       try {
         mapping = parseJsonField("observationMappingJson", {});
       } catch (error) {
         setStatus(`Invalid mapping JSON: ${error.message}.`);
-        return;
+        return null;
       }
       const url = `${apiBase()}/observations/batches/${encodeURIComponent(batch.id)}/mapping`;
       try {
@@ -2462,10 +3110,12 @@
         state.observationBatch = payload;
         setLastResponse("approveObservationMapping response", payload);
         renderObservationsWorkspace();
-        setStatus("Observation mapping approved.");
+        if (!options.silent) setStatus("Observation mapping approved.");
+        return payload;
       } catch (error) {
         debugLog("approveObservationMapping error", error);
-        setStatus(`Could not approve mapping: ${error.message}.`);
+        if (!options.silent) setStatus(`Could not approve mapping: ${error.message}.`);
+        return null;
       }
     }
 
@@ -2481,12 +3131,205 @@
         state.observationBatch = payload.batch || batch;
         state.observationBatch.candidate_counts = payload.counts || state.observationBatch.candidate_counts || {};
         state.observationSample = payload.items || [];
+        const visibleIds = new Set(state.observationSample.map((row) => row.id));
+        state.selectedObservationRowIds = state.selectedObservationRowIds.filter((rowId) => visibleIds.has(rowId));
+        state.observationCellDrafts = Object.fromEntries(
+          Object.entries(state.observationCellDrafts || {}).filter(([draftKey]) => visibleIds.has(draftKey.split("::")[0])),
+        );
         setLastResponse("loadObservationRows response", payload);
         renderObservationsWorkspace();
-        setStatus(`Loaded ${state.observationSample.length} candidate rows.`);
+        setStatus(`Loaded ${state.observationSample.length} observation preview rows.`);
+        return payload;
       } catch (error) {
         debugLog("loadObservationRows error", error);
-        setStatus(`Could not load candidate rows: ${error.message}.`);
+        setStatus(`Could not load observation preview rows: ${error.message}.`);
+        return null;
+      }
+    }
+
+    async function loadObservationBlocks(blockId = null) {
+      const batch = state.observationBatch;
+      if (!batch?.id) {
+        setStatus("Upload an observation batch first.");
+        return;
+      }
+      try {
+        const payload = await fetchJson(`${apiBase()}/observations/batches/${encodeURIComponent(batch.id)}/blocks`);
+        state.observationBlocks = payload.items || [];
+        state.activeObservationBlockId = blockId || state.activeObservationBlockId || state.observationBlocks[0]?.id || null;
+        state.observationBlockColumnDrafts = {};
+        await loadObservationBlockRows();
+        setLastResponse("loadObservationBlocks response", payload);
+        renderObservationsWorkspace();
+        setStatus(`Loaded ${state.observationBlocks.length} extracted blocks.`);
+      } catch (error) {
+        debugLog("loadObservationBlocks error", error);
+        setStatus(`Could not load extracted blocks: ${error.message}.`);
+      }
+    }
+
+    async function loadObservationBlockRows() {
+      const batch = state.observationBatch;
+      const block = activeObservationBlock();
+      if (!batch?.id || !block?.id) {
+        state.observationBlockRows = [];
+        return;
+      }
+      const payload = await fetchJson(`${apiBase()}/observations/batches/${encodeURIComponent(batch.id)}/blocks/${encodeURIComponent(block.id)}/rows?limit=500`);
+      state.observationBlockRows = payload.items || [];
+      const visibleIds = new Set(state.observationBlockRows.map((row) => row.id));
+      state.observationBlockCellDrafts = Object.fromEntries(
+        Object.entries(state.observationBlockCellDrafts || {}).filter(([draftKey]) => visibleIds.has(draftKey.split("::")[0])),
+      );
+    }
+
+    async function saveObservationBlockGrid() {
+      const batch = state.observationBatch;
+      const block = activeObservationBlock();
+      if (!batch?.id || !block?.id) {
+        setStatus("Select an extracted block first.");
+        return;
+      }
+      const columns = blockColumns(block);
+      const columnEdits = [];
+      for (const column of columns) {
+        if (!isDirtyBlockColumn(column)) continue;
+        columnEdits.push({
+          ...column,
+          label: blockColumnLabel(column),
+          metric_key: blockColumnMetric(column) || null,
+          role: blockColumnMetric(column) ? "metric" : (column.role || batchColumnMapping(column.key).target || "dimension"),
+        });
+      }
+      const updates = [];
+      for (const row of state.observationBlockRows || []) {
+        const normalized = { ...(row.normalized_cells || row.raw_cells || {}) };
+        let touched = false;
+        for (const column of columns) {
+          if (!isDirtyBlockCell(row, column)) continue;
+          const value = blockCellValue(row, column);
+          if (value === "") {
+            delete normalized[column.key];
+          } else {
+            normalized[column.key] = value;
+          }
+          touched = true;
+        }
+        if (touched) {
+          updates.push({ row, normalized });
+        }
+      }
+      if (!updates.length && !columnEdits.length) {
+        setStatus("No table edits to save.");
+        return;
+      }
+      try {
+        if (columnEdits.length) {
+          const nextColumns = columns.map((column) => {
+            const edited = columnEdits.find((item) => item.key === column.key);
+            return edited || column;
+          });
+          await fetchJson(`${apiBase()}/observations/batches/${encodeURIComponent(batch.id)}/blocks/${encodeURIComponent(block.id)}`, {
+            method: "PATCH",
+            body: JSON.stringify({ columns: nextColumns }),
+          });
+
+          const nextMapping = JSON.parse(JSON.stringify(batch.mapping || {}));
+          nextMapping.columns = nextMapping.columns || {};
+          for (const column of nextColumns) {
+            if (column.metric_key) {
+              nextMapping.columns[column.key] = { target: "metric", metric_key: column.metric_key };
+            } else if (nextMapping.columns[column.key]?.target === "metric") {
+              nextMapping.columns[column.key] = { target: "dimension", key: column.key };
+            }
+          }
+          el("observationMappingJson").value = JSON.stringify(nextMapping, null, 2);
+          await approveObservationMapping({ silent: true });
+        }
+        for (const item of updates) {
+          await fetchJson(`${apiBase()}/observations/batches/${encodeURIComponent(batch.id)}/blocks/${encodeURIComponent(block.id)}/rows/${encodeURIComponent(item.row.id)}`, {
+            method: "PATCH",
+            body: JSON.stringify({ normalized_cells: item.normalized }),
+          });
+        }
+        state.observationBlockCellDrafts = {};
+        state.observationBlockColumnDrafts = {};
+        await loadObservationBlockRows();
+        await generateObservationCandidates({ allBlocks: true, silent: true });
+        renderObservationsWorkspace();
+        setStatus(`Saved table edits: ${columnEdits.length} column mapping/header change${columnEdits.length === 1 ? "" : "s"}, ${updates.length} source row change${updates.length === 1 ? "" : "s"}.`);
+      } catch (error) {
+        debugLog("saveObservationBlockGrid error", error);
+        setStatus(`Could not save table edits: ${error.message}.`);
+      }
+    }
+
+    async function addObservationBlockColumn() {
+      const batch = state.observationBatch;
+      const block = activeObservationBlock();
+      if (!batch?.id || !block?.id) {
+        setStatus("Select an extracted block first.");
+        return;
+      }
+      const label = prompt("New source column name");
+      const key = slugColumnName(label);
+      if (!key) {
+        setStatus("Column name is required.");
+        return;
+      }
+      try {
+        await fetchJson(`${apiBase()}/observations/batches/${encodeURIComponent(batch.id)}/blocks/${encodeURIComponent(block.id)}/columns`, {
+          method: "POST",
+          body: JSON.stringify({ key, label: label || key }),
+        });
+        await loadObservationBlocks(block.id);
+        setStatus(`Block column ${key} added.`);
+      } catch (error) {
+        debugLog("addObservationBlockColumn error", error);
+        setStatus(`Could not add block column: ${error.message}.`);
+      }
+    }
+
+    async function removeObservationBlockColumn() {
+      const batch = state.observationBatch;
+      const block = activeObservationBlock();
+      const key = el("observationBlockColumnRemove")?.value;
+      if (!batch?.id || !block?.id || !key) {
+        setStatus("Select a block column first.");
+        return;
+      }
+      if (!confirm(`Remove source column "${key}" from this block?`)) return;
+      try {
+        await fetchJson(`${apiBase()}/observations/batches/${encodeURIComponent(batch.id)}/blocks/${encodeURIComponent(block.id)}/columns/${encodeURIComponent(key)}`, { method: "DELETE" });
+        await loadObservationBlocks(block.id);
+        setStatus(`Block column ${key} removed.`);
+      } catch (error) {
+        debugLog("removeObservationBlockColumn error", error);
+        setStatus(`Could not remove block column: ${error.message}.`);
+      }
+    }
+
+    async function generateObservationCandidates(options = {}) {
+      const batch = state.observationBatch;
+      const block = activeObservationBlock();
+      if (!batch?.id) {
+        setStatus("Upload an observation batch first.");
+        return null;
+      }
+      try {
+        const body = options.allBlocks ? {} : { block_id: block?.id || null };
+        const payload = await fetchJson(`${apiBase()}/observations/batches/${encodeURIComponent(batch.id)}/generate-candidates`, {
+          method: "POST",
+          body: JSON.stringify(body),
+        });
+        setLastResponse("generateObservationCandidates response", payload);
+        await loadObservationRows();
+        if (!options.silent) setStatus(`Generated ${payload.created || 0} observation preview rows; preserved ${payload.preserved || 0} user-edited rows.`);
+        return payload;
+      } catch (error) {
+        debugLog("generateObservationCandidates error", error);
+        if (!options.silent) setStatus(`Could not build observation preview: ${error.message}.`);
+        return null;
       }
     }
 
@@ -2515,6 +3358,27 @@
         debugLog("commitObservations error", error);
         setStatus(`Could not commit observations: ${error.message}.`);
       }
+    }
+
+    async function commitReviewedEvidence() {
+      const manifest = state.activeManifest;
+      const batch = state.observationBatch;
+      if (!manifest && !batch?.id) {
+        setStatus("Upload evidence first.");
+        return;
+      }
+      const pendingFacts = (manifest?.candidates || []).filter((item) => item.review_status === "pending").length;
+      if (pendingFacts) {
+        setStatus(`Review all fact candidates first. ${pendingFacts} pending.`);
+        return;
+      }
+      if (manifest && manifest.status !== "active") {
+        await commitManifest();
+      }
+      if (batch?.id && batch.status !== "committed") {
+        await commitObservations();
+      }
+      renderObservationsWorkspace();
     }
 
     async function loadObservations() {
@@ -2563,7 +3427,7 @@
     async function updateObservationRow(rowId, action) {
       const batch = state.observationBatch;
       if (!batch?.id || !rowId) {
-        setStatus("Select a candidate row first.");
+        setStatus("Select an observation row first.");
         return;
       }
       if (action === "edit") {
@@ -2579,21 +3443,36 @@
       const url = `${apiBase()}/observations/batches/${encodeURIComponent(batch.id)}/rows/${encodeURIComponent(rowId)}/${action}`;
       try {
         const payload = await fetchJson(url, { method: "POST" });
-        setLastResponse(`candidate row ${action} response`, payload);
+        setLastResponse(`observation row ${action} response`, payload);
         await loadObservationRows();
         state.activeObservationRowId = payload.id;
         setStatus(`Candidate row ${action}ed.`);
       } catch (error) {
         debugLog("updateObservationRow error", error);
-        setStatus(`Could not ${action} candidate row: ${error.message}.`);
+        setStatus(`Could not ${action} observation row: ${error.message}.`);
       }
+    }
+
+    function addObservationRow() {
+      const batch = state.observationBatch;
+      if (!batch?.id) {
+        setStatus("Upload an observation batch first.");
+        return;
+      }
+      if (observationBatchLocked(batch)) {
+        setStatus("Committed batches are locked. Upload a new batch to add rows.");
+        return;
+      }
+      state.activeObservationRowId = "__new__";
+      renderObservationsWorkspace();
+      setStatus("Add row draft opened.");
     }
 
     async function saveObservationRow() {
       const row = activeObservationRow();
       const batch = state.observationBatch;
       if (!row?.id || !batch?.id) {
-        setStatus("Select a candidate row first.");
+        setStatus("Select an observation row first.");
         return;
       }
       let dimensions;
@@ -2608,6 +3487,8 @@
         subject_type: el("obsEditSubjectType").value.trim() || null,
         subject: el("obsEditSubject").value.trim() || null,
         mpn: el("obsEditMpn").value.trim() || null,
+        manufacturer: el("obsEditManufacturer").value.trim() || null,
+        supplier: el("obsEditSupplier").value.trim() || null,
         observation_kind: el("obsEditKind").value || "metric_observation",
         semantic_role: el("obsEditRole").value.trim() || null,
         metric_key: el("obsEditMetric").value,
@@ -2616,19 +3497,156 @@
         unit: el("obsEditUnit").value.trim() || null,
         currency: el("obsEditCurrency").value.trim() || null,
         observed_at: el("obsEditObservedAt").value || null,
+        date_quality: el("obsEditDateQuality").value.trim() || null,
         dimensions,
         source_excerpt: el("obsEditSourceExcerpt").value.trim() || null,
       };
-      const url = `${apiBase()}/observations/batches/${encodeURIComponent(batch.id)}/rows/${encodeURIComponent(row.id)}`;
+      const isNew = row.id === "__new__";
+      const url = isNew
+        ? `${apiBase()}/observations/batches/${encodeURIComponent(batch.id)}/rows`
+        : `${apiBase()}/observations/batches/${encodeURIComponent(batch.id)}/rows/${encodeURIComponent(row.id)}`;
       try {
-        const payload = await fetchJson(url, { method: "PATCH", body: JSON.stringify(body) });
+        const payload = await fetchJson(url, { method: isNew ? "POST" : "PATCH", body: JSON.stringify(body) });
         setLastResponse("saveObservationRow response", payload);
         await loadObservationRows();
         state.activeObservationRowId = payload.id;
-        setStatus("Candidate row saved and revalidated.");
+        setStatus(isNew ? "Candidate row created and validated." : "Candidate row saved and revalidated.");
       } catch (error) {
         debugLog("saveObservationRow error", error);
-        setStatus(`Could not save candidate row: ${error.message}.`);
+        setStatus(`Could not save observation row: ${error.message}.`);
+      }
+    }
+
+    async function bulkObservationRows(action) {
+      const batch = state.observationBatch;
+      const rowIds = state.selectedObservationRowIds || [];
+      if (!batch?.id) {
+        setStatus("Upload an observation batch first.");
+        return;
+      }
+      if (!rowIds.length) {
+        setStatus("Select at least one observation row.");
+        return;
+      }
+      const url = `${apiBase()}/observations/batches/${encodeURIComponent(batch.id)}/rows/bulk`;
+      try {
+        const payload = await fetchJson(url, {
+          method: "POST",
+          body: JSON.stringify({ row_ids: rowIds, action }),
+        });
+        setLastResponse(`bulk ${action} rows response`, payload);
+        state.selectedObservationRowIds = [];
+        await loadObservationRows();
+        setStatus(`${action} applied to selected rows.`);
+      } catch (error) {
+        debugLog("bulkObservationRows error", error);
+        setStatus(`Could not ${action} selected rows: ${error.message}.`);
+      }
+    }
+
+    async function saveObservationGrid() {
+      const batch = state.observationBatch;
+      if (!batch?.id) {
+        setStatus("Upload an observation batch first.");
+        return;
+      }
+      if (observationBatchLocked(batch)) {
+        setStatus("Committed batches are locked. Upload a new batch to edit rows.");
+        return;
+      }
+      const columns = observationColumns();
+      const updates = [];
+      for (const row of state.observationSample || []) {
+        if (row.locked || row.status === "committed") continue;
+        const patch = buildPatchFromGridRow(row, columns);
+        if (Object.keys(patch).length) {
+          updates.push({ row_id: row.id, patch });
+        }
+      }
+      if (!updates.length) {
+        setStatus("No grid changes to save.");
+        return;
+      }
+      try {
+        const payload = await fetchJson(`${apiBase()}/observations/batches/${encodeURIComponent(batch.id)}/rows/spreadsheet`, {
+          method: "POST",
+          body: JSON.stringify({ updates }),
+        });
+        setLastResponse("saveObservationGrid response", payload);
+        clearObservationDraftsForRows(updates.map((item) => item.row_id));
+        await loadObservationRows();
+        setStatus(`Saved and revalidated ${updates.length} row${updates.length === 1 ? "" : "s"}.`);
+      } catch (error) {
+        debugLog("saveObservationGrid error", error);
+        setStatus(`Could not save grid changes: ${error.message}.`);
+      }
+    }
+
+    function addObservationColumn() {
+      const batch = state.observationBatch;
+      if (!batch?.id) {
+        setStatus("Upload an observation batch first.");
+        return;
+      }
+      if (observationBatchLocked(batch)) {
+        setStatus("Committed batches are locked. Upload a new batch to add columns.");
+        return;
+      }
+      const label = prompt("New column name. Custom columns are saved as dimensions.");
+      const key = slugColumnName(label);
+      if (!key) {
+        setStatus("Column name is required.");
+        return;
+      }
+      const baseKeys = new Set(OBSERVATION_BASE_COLUMNS.map((column) => column.key));
+      if (baseKeys.has(key)) {
+        setStatus(`Column ${key} already exists as a core field.`);
+        return;
+      }
+      if (!state.observationCustomColumns.includes(key)) {
+        state.observationCustomColumns.push(key);
+      }
+      renderObservationsWorkspace();
+      setStatus(`Column ${key} added. Fill cells and click Save grid changes.`);
+    }
+
+    async function removeObservationColumn() {
+      const batch = state.observationBatch;
+      const key = el("observationColumnRemove")?.value;
+      if (!batch?.id || !key) {
+        setStatus("Select a custom column to remove.");
+        return;
+      }
+      if (observationBatchLocked(batch)) {
+        setStatus("Committed batches are locked. Upload a new batch to remove columns.");
+        return;
+      }
+      if (!confirm(`Remove custom column "${key}" from loaded observation rows?`)) return;
+      const updates = [];
+      for (const row of state.observationSample || []) {
+        if (row.locked || row.status === "committed") continue;
+        if (!Object.prototype.hasOwnProperty.call(row.dimensions || {}, key)) continue;
+        const dimensions = { ...(row.dimensions || {}) };
+        delete dimensions[key];
+        updates.push({ row_id: row.id, patch: { dimensions } });
+      }
+      try {
+        if (updates.length) {
+          const payload = await fetchJson(`${apiBase()}/observations/batches/${encodeURIComponent(batch.id)}/rows/spreadsheet`, {
+            method: "POST",
+            body: JSON.stringify({ updates }),
+          });
+          setLastResponse("removeObservationColumn response", payload);
+        }
+        state.observationCustomColumns = (state.observationCustomColumns || []).filter((item) => item !== key);
+        state.observationCellDrafts = Object.fromEntries(
+          Object.entries(state.observationCellDrafts || {}).filter(([draftKey]) => !draftKey.endsWith(`::dimensions.${key}`)),
+        );
+        await loadObservationRows();
+        setStatus(updates.length ? `Removed column ${key} from ${updates.length} loaded row${updates.length === 1 ? "" : "s"}.` : `Removed empty column ${key}.`);
+      } catch (error) {
+        debugLog("removeObservationColumn error", error);
+        setStatus(`Could not remove column: ${error.message}.`);
       }
     }
 
@@ -2649,12 +3667,13 @@
       const semanticRole = el("observationGroupRole")?.value?.trim();
       const currency = el("observationGroupCurrency")?.value?.trim();
       const observedAt = el("observationGroupObservedAt")?.value;
+      body.force = el("observationGroupForce")?.value === "true";
       if (observationKind) body.observation_kind = observationKind;
       if (semanticRole) body.semantic_role = semanticRole;
       if (metricKey) body.metric_key = metricKey;
       if (currency) body.currency = currency;
       if (observedAt) body.observed_at = observedAt;
-      if (!Object.keys(body).length) {
+      if (!Object.keys(body).some((key) => key !== "force")) {
         setStatus("Set at least one group edit field.");
         return;
       }
@@ -2663,7 +3682,7 @@
         const payload = await fetchJson(url, { method: "PATCH", body: JSON.stringify(body) });
         setLastResponse("applyObservationGroupEdit response", payload);
         await loadObservationRows();
-        setStatus(`Group ${groupId} updated.`);
+        setStatus(`Group ${groupId} updated${body.force ? " with force" : " without overwriting edited rows"}.`);
       } catch (error) {
         debugLog("applyObservationGroupEdit error", error);
         setStatus(`Could not update group: ${error.message}.`);
@@ -2730,9 +3749,45 @@
     function factVerifierWarnings(item) {
       const ambiguity = item.ambiguity || {};
       const errors = Array.isArray(ambiguity.verifier_errors) ? ambiguity.verifier_errors : [];
-      const otherKeys = Object.keys(ambiguity).filter((key) => key !== "verifier_errors");
+      const warnings = Array.isArray(ambiguity.verifier_warnings) ? ambiguity.verifier_warnings : [];
+      const otherKeys = Object.keys(ambiguity).filter((key) => key !== "verifier_errors" && key !== "verifier_warnings");
       const notes = otherKeys.map((key) => `${key}: ${typeof ambiguity[key] === "object" ? JSON.stringify(ambiguity[key]) : ambiguity[key]}`);
-      return [...errors.map((error) => `Verifier: ${error}`), ...notes];
+      return [...errors.map((error) => `Verifier: ${error}`), ...warnings.map((warning) => `Warning: ${warning}`), ...notes];
+    }
+
+    function manifestCandidatePresentation(item) {
+      const presentation = item.review_presentation || {};
+      const source = presentation.source || {};
+      const ingest = presentation.ingested_summary || {};
+      return {
+        statement: presentation.statement || item.label || `${item.subject || "Subject"} has ${String(item.predicate || "fact").replaceAll("_", " ")}.`,
+        factType: presentation.fact_type || String(item.predicate || "fact").replaceAll("_", " "),
+        factClass: presentation.fact_class || "",
+        why: presentation.why_it_matters || "This can affect review, optimization, or downstream design decisions.",
+        optimizerEffect: presentation.optimizer_effect || {},
+        hint: presentation.review_hint || "Accept if the statement and evidence match the source document.",
+        structured: presentation.structured_summary || [],
+        ingest,
+        evidence: source.excerpt || item.source_excerpt || item.source_row || "No source excerpt",
+        page: source.page || item.source_page,
+        section: source.section || item.ambiguity?.source_section,
+      };
+    }
+
+    function technicalFactPayload(item) {
+      return {
+        subject_type: item.subject_type,
+        subject: item.subject,
+        predicate: item.predicate,
+        axis: item.axis,
+        severity: item.severity || null,
+        value: item.value,
+        stable_key: item.stable_key,
+        confidence: item.confidence,
+        ambiguity: item.ambiguity,
+        source_page: item.source_page,
+        source_excerpt: item.source_excerpt,
+      };
     }
 
     function renderManifestWorkspace() {
@@ -2766,30 +3821,53 @@
       ` : "";
 
       const candidates = manifest?.candidates || [];
-      el("manifestCandidateRows").innerHTML = candidates.length ? candidates.map((item) => `
+      el("manifestCandidateRows").innerHTML = candidates.length ? candidates.map((item) => {
+        const presentation = manifestCandidatePresentation(item);
+        const warnings = factVerifierWarnings(item);
+        return `
         <tr>
           <td><span class="badge ${item.review_status === "rejected" ? "red" : item.review_status === "pending" ? "amber" : "green"}">${esc(item.review_status)}</span></td>
           <td>
-            <span class="badge">${esc(item.subject_type)}</span><br>
-            <strong>${esc(item.subject)}</strong><br>
-            <span>${esc(item.label || "")}</span>
-            ${factVerifierWarnings(item).length ? `<br><span class="badge amber">needs review</span>` : ""}
+            <div class="fact-review">
+              <div class="fact-meta">
+                <span class="badge">${esc(presentation.factType)}</span>
+                <span class="badge">${esc(item.axis || "unknown axis")}</span>
+                <span class="badge ${item.severity === "blocking" || item.severity === "conflict" ? "red" : item.severity === "warning" ? "amber" : "gray"}">${esc(item.severity || "none")}</span>
+                ${warnings.length ? `<span class="badge amber">needs review</span>` : ""}
+              </div>
+              <strong class="fact-statement">${esc(presentation.statement)}</strong>
+              <div class="fact-note">${esc(presentation.why)}</div>
+              ${presentation.optimizerEffect?.summary ? `<div class="fact-note"><strong>Optimizer effect</strong>: ${esc(presentation.optimizerEffect.summary)}</div>` : ""}
+              <div class="fact-note"><strong>Owner action</strong>: ${esc(presentation.hint)}</div>
+            </div>
           </td>
-          <td>${esc(item.predicate)}<br><span class="badge">${esc(item.axis)}</span></td>
           <td>
-            <strong>${esc(factValueSummary(item.value))}</strong>
-            <details>
-              <summary>Raw value</summary>
-              <pre class="json-box">${esc(JSON.stringify(item.value, null, 2))}</pre>
-            </details>
+            <div class="fact-evidence">
+              <span>${esc(presentation.evidence)}</span>
+              <div class="fact-meta" style="margin-top:6px">
+                ${presentation.page ? `<span class="badge">page ${esc(presentation.page)}</span>` : ""}
+                ${presentation.section ? `<span class="badge">${esc(presentation.section)}</span>` : ""}
+                <span class="badge">${esc(percent(item.confidence))} confidence</span>
+              </div>
+            </div>
           </td>
-          <td><span class="badge ${item.severity === "blocking" || item.severity === "conflict" ? "red" : item.severity === "warning" ? "amber" : "gray"}">${esc(item.severity || "none")}</span></td>
           <td>
-            <span>${esc(item.source_excerpt || item.source_row || "No source excerpt")}</span>
-            ${item.source_page ? `<br><span class="badge">page ${esc(item.source_page)}</span>` : ""}
-            ${factVerifierWarnings(item).length ? `<details><summary>Review notes</summary><ul>${factVerifierWarnings(item).map((note) => `<li>${esc(note)}</li>`).join("")}</ul></details>` : ""}
+            <div class="fact-technical">
+              <div class="fact-note"><strong>Subject</strong>: ${esc(presentation.ingest.subject || item.subject || "unknown")} <span class="muted">(${esc(presentation.ingest.subject_type || item.subject_type || "unknown")})</span></div>
+              <div class="fact-note"><strong>Predicate</strong>: ${esc(presentation.ingest.predicate || item.predicate || "fact")}</div>
+              <div class="fact-note"><strong>Value</strong>: ${esc(presentation.ingest.value || factValueSummary(item.value))}</div>
+              <div class="fact-meta" style="margin-top:6px">
+                <span class="badge">${esc(presentation.ingest.axis || item.axis || "unknown axis")}</span>
+                <span class="badge ${item.severity === "blocking" || item.severity === "conflict" ? "red" : item.severity === "warning" ? "amber" : "gray"}">${esc(presentation.ingest.severity || item.severity || "none")}</span>
+              </div>
+              <details>
+                <summary>Inspect optimizer payload</summary>
+                ${presentation.structured?.length ? `<ul>${presentation.structured.map((line) => `<li>${esc(line)}</li>`).join("")}</ul>` : ""}
+                ${warnings.length ? `<div class="fact-note"><strong>Review notes</strong><ul>${warnings.map((note) => `<li>${esc(note)}</li>`).join("")}</ul></div>` : ""}
+                <pre class="json-box">${esc(JSON.stringify(technicalFactPayload(item), null, 2))}</pre>
+              </details>
+            </div>
           </td>
-          <td>${esc(percent(item.confidence))}</td>
           <td>
             <div class="toolbar">
               <button class="btn" data-candidate-action="accept" data-candidate-id="${esc(item.id)}">Accept</button>
@@ -2798,7 +3876,8 @@
             </div>
           </td>
         </tr>
-      `).join("") : `<tr><td colspan="8">No candidate facts selected.</td></tr>`;
+      `;
+      }).join("") : `<tr><td colspan="5">No candidate facts selected.</td></tr>`;
 
       const pending = candidates.filter((item) => item.review_status === "pending").length;
       el("commitManifest").disabled = !manifest || manifest.status === "active" || pending > 0;
@@ -3171,6 +4250,86 @@
         return;
       }
 
+      if (event.target.closest("#addObservationRow")) {
+        addObservationRow();
+        return;
+      }
+
+      if (event.target.closest("#loadObservationBlocks")) {
+        loadObservationBlocks();
+        return;
+      }
+
+      const observationBlockButton = event.target.closest("[data-observation-block]");
+      if (observationBlockButton) {
+        state.activeObservationBlockId = observationBlockButton.dataset.observationBlock;
+        state.observationBlockCellDrafts = {};
+        state.observationBlockColumnDrafts = {};
+        loadObservationBlockRows()
+          .then(() => {
+            renderObservationsWorkspace();
+            setStatus("Extracted block selected.");
+          })
+          .catch((error) => setStatus(`Could not load block rows: ${error.message}.`));
+        return;
+      }
+
+      if (event.target.closest("#saveObservationBlockGrid")) {
+        saveObservationBlockGrid();
+        return;
+      }
+
+      if (event.target.closest("#addObservationBlockColumn")) {
+        addObservationBlockColumn();
+        return;
+      }
+
+      if (event.target.closest("#removeObservationBlockColumn")) {
+        removeObservationBlockColumn();
+        return;
+      }
+
+      if (event.target.closest("#generateObservationCandidates")) {
+        generateObservationCandidates({ allBlocks: true });
+        return;
+      }
+
+      if (event.target.closest("#commitEvidenceFacts")) {
+        commitManifest();
+        return;
+      }
+
+      if (event.target.closest("#commitReviewedEvidence")) {
+        commitReviewedEvidence();
+        return;
+      }
+
+      if (event.target.closest("#addManualFactFromEvidence")) {
+        addManualFact();
+        return;
+      }
+
+      if (event.target.closest("#saveObservationGrid")) {
+        saveObservationGrid();
+        return;
+      }
+
+      if (event.target.closest("#addObservationColumn")) {
+        addObservationColumn();
+        return;
+      }
+
+      if (event.target.closest("#removeObservationColumn")) {
+        removeObservationColumn();
+        return;
+      }
+
+      const observationBulkAction = event.target.closest("[data-observation-bulk-action]");
+      if (observationBulkAction) {
+        bulkObservationRows(observationBulkAction.dataset.observationBulkAction);
+        return;
+      }
+
       const observationRowAction = event.target.closest("[data-observation-row-action]");
       if (observationRowAction) {
         updateObservationRow(
@@ -3269,6 +4428,76 @@
         document.querySelectorAll("[data-rank]").forEach((button) => button.classList.toggle("active", button === rankButton));
         renderCandidates();
       }
+    });
+
+    document.addEventListener("change", (event) => {
+      const blockColumn = event.target.closest("[data-observation-block-column]");
+      if (blockColumn) {
+        state.observationBlockColumnDrafts[blockColumnDraftKey(blockColumn.dataset.observationBlockColumn, blockColumn.dataset.observationBlockColumnField)] = blockColumn.value;
+        updateObservationBlockSaveButton();
+        blockColumn.classList.add("dirty");
+        return;
+      }
+
+      const blockCell = event.target.closest("[data-observation-block-cell-row]");
+      if (blockCell) {
+        state.observationBlockCellDrafts[blockCellDraftKey(blockCell.dataset.observationBlockCellRow, blockCell.dataset.observationBlockCellColumn)] = blockCell.value;
+        updateObservationBlockSaveButton();
+        blockCell.classList.add("dirty");
+        return;
+      }
+
+      const gridCell = event.target.closest("[data-observation-cell-row]");
+      if (gridCell) {
+        setObservationCellDraft(
+          gridCell.dataset.observationCellRow,
+          gridCell.dataset.observationCellColumn,
+          gridCell.value,
+        );
+        renderObservationColumnControls(observationColumns());
+        gridCell.classList.add("dirty");
+        return;
+      }
+
+      const rowSelector = event.target.closest("[data-observation-select-row]");
+      if (!rowSelector) return;
+      const rowId = rowSelector.dataset.observationSelectRow;
+      if (!rowId) return;
+      const selected = new Set(state.selectedObservationRowIds || []);
+      if (rowSelector.checked) {
+        selected.add(rowId);
+      } else {
+        selected.delete(rowId);
+      }
+      state.selectedObservationRowIds = [...selected];
+    });
+
+    document.addEventListener("input", (event) => {
+      const blockColumn = event.target.closest("[data-observation-block-column]");
+      if (blockColumn) {
+        state.observationBlockColumnDrafts[blockColumnDraftKey(blockColumn.dataset.observationBlockColumn, blockColumn.dataset.observationBlockColumnField)] = blockColumn.value;
+        updateObservationBlockSaveButton();
+        blockColumn.classList.add("dirty");
+        return;
+      }
+
+      const blockCell = event.target.closest("[data-observation-block-cell-row]");
+      if (blockCell) {
+        state.observationBlockCellDrafts[blockCellDraftKey(blockCell.dataset.observationBlockCellRow, blockCell.dataset.observationBlockCellColumn)] = blockCell.value;
+        updateObservationBlockSaveButton();
+        blockCell.classList.add("dirty");
+        return;
+      }
+
+      const gridCell = event.target.closest("[data-observation-cell-row]");
+      if (!gridCell) return;
+      setObservationCellDraft(
+        gridCell.dataset.observationCellRow,
+        gridCell.dataset.observationCellColumn,
+        gridCell.value,
+      );
+      renderObservationColumnControls(observationColumns());
+      gridCell.classList.add("dirty");
     });
 
     el("loadBackend").addEventListener("click", loadBackendContext);

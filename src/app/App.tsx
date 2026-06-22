@@ -1,10 +1,17 @@
 import { lazy, Suspense } from 'react';
 import { BrowserRouter, Routes, Route, Navigate } from 'react-router-dom';
 import { Toaster } from 'sonner';
+import { AuthProvider } from './context/AuthContext';
 import { SessionProvider } from './context/SessionContext';
 import { ImpactPreviewProvider } from './context/ImpactPreviewContext';
+import { AuthGuard } from './shared/components/AuthGuard';
 import { Layout } from './shared/components/Layout';
+import { SessionExpiredModal } from './shared/components/SessionExpiredModal';
 
+const LandingPage = lazy(() => import('./pages/landing/LandingPage').then(module => ({ default: module.LandingPage })));
+const LoginPage = lazy(() => import('./pages/auth/LoginPage').then(module => ({ default: module.LoginPage })));
+const RegisterPage = lazy(() => import('./pages/auth/RegisterPage').then(module => ({ default: module.RegisterPage })));
+const PortalPage = lazy(() => import('./pages/portal/PortalPage').then(module => ({ default: module.PortalPage })));
 const LibraryPage = lazy(() => import('./pages/library/LibraryPage').then(module => ({ default: module.LibraryPage })));
 const UploadPage = lazy(() => import('./pages/upload/UploadPage').then(module => ({ default: module.UploadPage })));
 const ValidatePage = lazy(() => import('./pages/validate/validatePage').then(module => ({ default: module.ValidatePage })));
@@ -34,33 +41,44 @@ function RouteLoading() {
 export default function App() {
   return (
     <BrowserRouter>
-      <SessionProvider>
+      <AuthProvider>
+        <SessionProvider>
         <ImpactPreviewProvider>
         <Toaster position="top-right" richColors />
+        <SessionExpiredModal />
         <Suspense fallback={<RouteLoading />}>
           <Routes>
-            <Route path="/" element={<LibraryPage />} />
-            <Route path="/upload" element={<Layout showStageIndicator={true}><UploadPage /></Layout>} />
-            <Route path="/part-identification" element={<Layout showStageIndicator={true}><FundamentalPage /></Layout>} />
-            <Route path="/system-identification" element={<Layout showStageIndicator={true}><AnalysisPage /></Layout>} />
-            <Route path="/classification" element={<Layout showStageIndicator={true}><ClassificationPage /></Layout>} />
-            <Route path="/enrichment" element={<Layout showStageIndicator={true}><EnrichmentPage /></Layout>} />
-            <Route path="/validate" element={<Layout showStageIndicator={true}><ValidatePage /></Layout>} />
-            <Route path="/requirements" element={<Layout showStageIndicator={true}><RequirementsPage /></Layout>} />
-            <Route path="/design-definition" element={<Layout fixedLayout><DesignDefinitionPage /></Layout>} />
-            <Route path="/architecture" element={<Layout showStageIndicator={true}><ArchitecturePage /></Layout>} />
-            <Route path="/architecture/fixtures" element={<ArchitectureFixturePage />} />
-            <Route path="/subsystems" element={<Layout showStageIndicator={true}><SubsystemsPage /></Layout>} />
-            <Route path="/design" element={<Layout showStageIndicator={true}><DesignPage /></Layout>} />
-            <Route path="/review" element={<Layout><ReviewPage /></Layout>} />
-            <Route path="/completed" element={<CompletedPage />} />
-            <Route path="/optimization" element={<OptimizationPage />} />
-            <Route path="/chat" element={<Layout showStageIndicator={true}><ChatConsolePage /></Layout>} />
+            {/* Public */}
+            <Route path="/" element={<LandingPage />} />
+            <Route path="/login" element={<LoginPage />} />
+            <Route path="/register" element={<RegisterPage />} />
+
+            {/* Authed — AuthGuard redirects to /login if no session */}
+            <Route path="/portal" element={<AuthGuard><PortalPage /></AuthGuard>} />
+            <Route path="/library" element={<AuthGuard><LibraryPage /></AuthGuard>} />
+            <Route path="/upload" element={<AuthGuard><Layout showStageIndicator={true}><UploadPage /></Layout></AuthGuard>} />
+            <Route path="/part-identification" element={<AuthGuard><Layout showStageIndicator={true}><FundamentalPage /></Layout></AuthGuard>} />
+            <Route path="/system-identification" element={<AuthGuard><Layout showStageIndicator={true}><AnalysisPage /></Layout></AuthGuard>} />
+            <Route path="/classification" element={<AuthGuard><Layout showStageIndicator={true}><ClassificationPage /></Layout></AuthGuard>} />
+            <Route path="/enrichment" element={<AuthGuard><Layout showStageIndicator={true}><EnrichmentPage /></Layout></AuthGuard>} />
+            <Route path="/validate" element={<AuthGuard><Layout showStageIndicator={true}><ValidatePage /></Layout></AuthGuard>} />
+            <Route path="/requirements" element={<AuthGuard><Layout showStageIndicator={true}><RequirementsPage /></Layout></AuthGuard>} />
+            <Route path="/design-definition" element={<AuthGuard><Layout fixedLayout><DesignDefinitionPage /></Layout></AuthGuard>} />
+            <Route path="/architecture" element={<AuthGuard><Layout showStageIndicator={true}><ArchitecturePage /></Layout></AuthGuard>} />
+            <Route path="/architecture/fixtures" element={<AuthGuard><ArchitectureFixturePage /></AuthGuard>} />
+            <Route path="/subsystems" element={<AuthGuard><Layout showStageIndicator={true}><SubsystemsPage /></Layout></AuthGuard>} />
+            <Route path="/design" element={<AuthGuard><Layout showStageIndicator={true}><DesignPage /></Layout></AuthGuard>} />
+            <Route path="/review" element={<AuthGuard><Layout><ReviewPage /></Layout></AuthGuard>} />
+            <Route path="/completed" element={<AuthGuard><CompletedPage /></AuthGuard>} />
+            <Route path="/optimization" element={<AuthGuard><OptimizationPage /></AuthGuard>} />
+            <Route path="/chat" element={<AuthGuard><Layout showStageIndicator={true}><ChatConsolePage /></Layout></AuthGuard>} />
+
             <Route path="*" element={<Navigate to="/" replace />} />
           </Routes>
         </Suspense>
         </ImpactPreviewProvider>
-      </SessionProvider>
+        </SessionProvider>
+      </AuthProvider>
     </BrowserRouter>
   );
 }

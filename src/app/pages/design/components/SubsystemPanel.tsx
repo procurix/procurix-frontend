@@ -1,10 +1,12 @@
 import { useEffect, useMemo, useState } from 'react';
 import { motion } from 'motion/react';
-import { Box, FileText, Layers, Loader2, ShieldCheck, X } from 'lucide-react';
+import { Box, Check, FileText, Layers, Loader2, ShieldCheck, X } from 'lucide-react';
 import {
+  confirmSubsystem,
   generateSubsystemRequirements,
   getSubsystemReadiness,
   getSubsystemRequirementsBySubsystemId,
+  rejectSubsystem,
   type SubsystemReadinessResponse,
   type SubsystemRequirementItem,
 } from '@/app/services/api';
@@ -65,6 +67,40 @@ interface PanelContentProps {
 
 function PanelContent({ subsystem, onClose }: PanelContentProps) {
   const [tab, setTab] = useState<TabKey>('parts');
+  const { sessionId, subsystems: subsystemsState } = useDesignContext();
+  const [reviewing, setReviewing] = useState<'confirm' | 'reject' | null>(null);
+  const subId = subsystem.subsystem_id || subsystem.id;
+  const status = (subsystem.status ?? 'suggested').toLowerCase();
+  const isSuggested = status === 'suggested';
+
+  const handleConfirm = async () => {
+    if (reviewing) return;
+    setReviewing('confirm');
+    try {
+      await confirmSubsystem(sessionId, subId);
+      await subsystemsState.reload();
+      toast.success(`Confirmed ${subsystem.name}`);
+    } catch (err) {
+      toast.error(err instanceof Error ? err.message : 'Failed to confirm subsystem');
+    } finally {
+      setReviewing(null);
+    }
+  };
+
+  const handleReject = async () => {
+    if (reviewing) return;
+    setReviewing('reject');
+    try {
+      await rejectSubsystem(sessionId, subId);
+      await subsystemsState.reload();
+      toast.success(`Rejected ${subsystem.name}`);
+      onClose();
+    } catch (err) {
+      toast.error(err instanceof Error ? err.message : 'Failed to reject subsystem');
+    } finally {
+      setReviewing(null);
+    }
+  };
 
   return (
     <div className="flex h-full w-[480px] flex-col">
@@ -76,6 +112,18 @@ function PanelContent({ subsystem, onClose }: PanelContentProps) {
               {subsystem.type}
             </span>
           )}
+          <span
+            className={`rounded px-1.5 py-0.5 text-[10px] font-medium ${
+              isSuggested
+                ? 'bg-amber-50 text-amber-700 border border-amber-200'
+                : status === 'confirmed'
+                ? 'bg-emerald-50 text-emerald-700 border border-emerald-200'
+                : 'bg-slate-100 text-slate-600'
+            }`}
+            title={isSuggested ? 'AI-suggested. Confirm or reject below.' : `Status: ${status}`}
+          >
+            {status}
+          </span>
           <button
             type="button"
             onClick={onClose}
@@ -87,6 +135,39 @@ function PanelContent({ subsystem, onClose }: PanelContentProps) {
         </div>
         {subsystem.description && (
           <p className="mt-1 line-clamp-2 text-xs text-slate-600">{subsystem.description}</p>
+        )}
+        {isSuggested && (
+          <div className="mt-2 flex items-center gap-2">
+            <button
+              type="button"
+              onClick={() => void handleConfirm()}
+              disabled={reviewing !== null}
+              className="flex items-center gap-1 rounded bg-emerald-600 px-2.5 py-1 text-[11px] font-medium text-white hover:bg-emerald-700 disabled:opacity-60"
+            >
+              {reviewing === 'confirm' ? (
+                <Loader2 className="h-3 w-3 animate-spin" />
+              ) : (
+                <Check className="h-3 w-3" />
+              )}
+              Confirm subsystem
+            </button>
+            <button
+              type="button"
+              onClick={() => void handleReject()}
+              disabled={reviewing !== null}
+              className="flex items-center gap-1 rounded border border-slate-300 bg-white px-2.5 py-1 text-[11px] font-medium text-slate-700 hover:bg-slate-50 disabled:opacity-60"
+            >
+              {reviewing === 'reject' ? (
+                <Loader2 className="h-3 w-3 animate-spin" />
+              ) : (
+                <X className="h-3 w-3" />
+              )}
+              Reject
+            </button>
+            <span className="text-[10px] text-slate-500">
+              Required before generating its requirements.
+            </span>
+          </div>
         )}
       </header>
 
@@ -376,11 +457,7 @@ function SubsystemRequirementsTab({ subsystem }: { subsystem: PanelContentProps[
         </div>
       ) : error ? (
         <div className="text-red-600">{error}</div>
-      ) : reqs.length === 0 ? (
-        <div className="text-slate-500">
-          No subsystem requirements yet. Click Generate to create them.
-        </div>
-      ) : (
+      ) : reqs.length === 0 ? null : (
         <ul className="space-y-2">
           {reqs.map((r, i) => (
             <li key={`${r.req_id ?? i}`} className="rounded border border-slate-200 bg-white p-2">

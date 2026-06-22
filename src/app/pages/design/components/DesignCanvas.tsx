@@ -14,6 +14,7 @@ import { DisabledReasonHint } from './DisabledReasonHint';
 export function DesignCanvas() {
   const {
     architecture,
+    architectureReadiness,
     autoRerun,
     setAutoRerun,
     sessionId,
@@ -23,6 +24,10 @@ export function DesignCanvas() {
     requirementsData,
   } = useDesignContext();
   const { isRecomputing, regenerate } = architecture;
+  // Hide Generate Subsystems entirely until the architecture has at least
+  // one active connection. Before that, there is nothing to cluster — the
+  // disabled-state was confusing, so we just don't show the button.
+  const hasConnections = (architectureReadiness.readiness?.counts?.active_connections ?? 0) > 0;
   // Architecture can't be generated until requirements exist. While the
   // requirements pipeline is still spinning (generating, or simply not
   // present yet), show an overlay instead of letting the embedded
@@ -37,7 +42,7 @@ export function DesignCanvas() {
         <h2 className="text-sm font-semibold text-slate-800">Architecture</h2>
         {isRecomputing && (
           <span className="flex items-center gap-1 text-xs text-blue-600">
-            <Loader2 className="h-3 w-3 animate-spin" /> Recomputing…
+            <Loader2 className="h-3 w-3 animate-spin" /> Analyzing connections…
           </span>
         )}
         <div className="ml-auto flex items-center gap-2">
@@ -45,7 +50,7 @@ export function DesignCanvas() {
             type="button"
             onClick={() => setAutoRerun(!autoRerun)}
             className="flex items-center gap-1 rounded border border-slate-200 px-2 py-1 text-xs text-slate-700 hover:bg-slate-50"
-            title={autoRerun ? 'Pause auto-rerun on requirement edits' : 'Resume auto-rerun on requirement edits'}
+            title={autoRerun ? 'Pause auto-rerun on spec statement edits' : 'Resume auto-rerun on spec statement edits'}
           >
             {autoRerun ? <Pause className="h-3 w-3" /> : <Play className="h-3 w-3" />}
             {autoRerun ? 'Auto' : 'Paused'}
@@ -75,7 +80,7 @@ export function DesignCanvas() {
               Overlay
             </button>
           )}
-          {subsystems.subsystems.length === 0 && <GenerateSubsystemsButton />}
+          {subsystems.subsystems.length === 0 && hasConnections && <GenerateSubsystemsButton />}
         </div>
       </header>
       {subsystems.subsystems.length > 0 && <SubsystemStrip />}
@@ -147,8 +152,8 @@ function ArchitecturePendingOverlay() {
     ? 'Architecture design in progress…'
     : 'Architecture design in progress…';
   const subline = isGenerating
-    ? 'Generating requirements first — the architecture will appear as soon as requirements are ready.'
-    : 'Waiting for requirements before the architecture can be generated.';
+    ? 'Generating spec statements first — the architecture will appear as soon as they are ready.'
+    : 'Waiting for spec statements before the architecture can be generated.';
 
   return (
     <div className="pointer-events-none absolute inset-0 z-20 flex items-center justify-center bg-white/85 backdrop-blur-sm">
@@ -171,9 +176,28 @@ function SubsystemStrip() {
           Subsystems
         </span>
         {subsystems.isStale && (
-          <span className="shrink-0 rounded bg-amber-50 px-1.5 py-0.5 text-[10px] text-amber-700">
-            may be stale
-          </span>
+          <div className="shrink-0 flex items-center gap-1.5">
+            <span
+              className="rounded bg-amber-50 px-1.5 py-0.5 text-[10px] text-amber-700"
+              title="The architecture was re-analyzed after these subsystems were generated. Their groupings may not match the current architecture."
+            >
+              may be stale
+            </span>
+            <button
+              type="button"
+              onClick={() => void subsystems.generate()}
+              disabled={subsystems.isGenerating}
+              className="flex items-center gap-1 rounded border border-amber-300 bg-white px-1.5 py-0.5 text-[10px] font-medium text-amber-800 hover:bg-amber-100 disabled:opacity-60"
+              title="Re-cluster subsystems from the current architecture. Existing subsystems are replaced."
+            >
+              {subsystems.isGenerating ? (
+                <Loader2 className="h-2.5 w-2.5 animate-spin" />
+              ) : (
+                <RefreshCw className="h-2.5 w-2.5" />
+              )}
+              {subsystems.isGenerating ? 'Regenerating…' : 'Regenerate'}
+            </button>
+          </div>
         )}
         <ul className="flex items-center gap-1.5">
           {subsystems.subsystems.map(sub => {

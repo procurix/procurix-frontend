@@ -1,7 +1,7 @@
 import { useState, useEffect, useCallback } from 'react';
 import { useNavigate } from 'react-router-dom';
 import { BOMLibrary } from './components/BOMLibrary';
-import { getAllBOMs } from '@/app/services/api';
+import { deleteDesign, getAllBOMs } from '@/app/services/api';
 import type { BOMSession, SessionStage } from '@/app/types';
 import { toast } from 'sonner';
 import { useSession } from '@/app/context/SessionContext';
@@ -108,6 +108,25 @@ export function LibraryPage() {
     navigate('/upload', { replace: true, state: {} });
   };
 
+  const handleDeleteSession = async (session: BOMSession) => {
+    try {
+      const ok = await deleteDesign(session.id);
+      if (!ok) {
+        // 404 — the BOM was already gone. Treat as success and refresh.
+        toast.message(`${session.name} was already deleted`);
+      } else {
+        toast.success(`Deleted ${session.name}`);
+      }
+      // Reload the list from scratch so totals + paging stay consistent.
+      setOffset(0);
+      await fetchPage(0, false);
+    } catch (err) {
+      const msg = err instanceof Error ? err.message : 'Failed to delete BOM';
+      toast.error(msg);
+      throw err; // let BOMLibrary keep the modal open on real failure
+    }
+  };
+
   if (isLoading) {
     return (
       <div className="h-screen flex items-center justify-center bg-gradient-to-br from-blue-50 via-white to-purple-50">
@@ -123,6 +142,7 @@ export function LibraryPage() {
     <BOMLibrary
       sessions={sessions}
       onSelectSession={handleSelectSession}
+      onDeleteSession={handleDeleteSession}
       onNewBOM={handleNewBOM}
       total={total}
       totalCompleted={totalCompleted}

@@ -1,6 +1,6 @@
 import { useState } from 'react';
 import type { BOMSession } from '@/app/types';
-import { FileText, CheckCircle2, AlertTriangle, Clock, Search, Plus, ChevronRight, Cpu, Package } from 'lucide-react';
+import { FileText, CheckCircle2, AlertTriangle, Clock, Search, Plus, ChevronRight, Cpu, Package, Trash2, Loader2 } from 'lucide-react';
 import { Button } from '@/app/shared/components/ui/button';
 import { Input } from '@/app/shared/components/ui/input';
 import { Badge } from '@/app/shared/components/ui/badge';
@@ -9,6 +9,7 @@ import { TOTAL_WORKFLOW_STAGES, WORKFLOW_STAGES } from '@/app/shared/utils/workf
 interface BOMLibraryProps {
   sessions: BOMSession[];
   onSelectSession: (session: BOMSession) => void;
+  onDeleteSession?: (session: BOMSession) => Promise<void>;
   onNewBOM: () => void;
   total?: number;
   totalCompleted?: number;
@@ -21,6 +22,7 @@ interface BOMLibraryProps {
 export function BOMLibrary({
   sessions,
   onSelectSession,
+  onDeleteSession,
   onNewBOM,
   total,
   totalCompleted,
@@ -31,6 +33,19 @@ export function BOMLibrary({
 }: BOMLibraryProps) {
   const [searchQuery, setSearchQuery] = useState('');
   const [filterStatus, setFilterStatus] = useState<'all' | 'complete' | 'in-progress'>('all');
+  const [pendingDelete, setPendingDelete] = useState<BOMSession | null>(null);
+  const [deleting, setDeleting] = useState(false);
+
+  const confirmDelete = async () => {
+    if (!pendingDelete || !onDeleteSession) return;
+    setDeleting(true);
+    try {
+      await onDeleteSession(pendingDelete);
+      setPendingDelete(null);
+    } finally {
+      setDeleting(false);
+    }
+  };
 
   const getStageLabel = (stage: string, stageNumber?: number) => {
     return WORKFLOW_STAGES.find(item => item.stageNumber === stageNumber || item.id === stage)?.label || stage;
@@ -261,7 +276,22 @@ export function BOMLibrary({
                               <div className="text-xs text-gray-600">Compliance</div>
                             </div>
                           )}
-                          
+
+                          {onDeleteSession && (
+                            <button
+                              type="button"
+                              onClick={(e) => {
+                                e.stopPropagation();
+                                setPendingDelete(session);
+                              }}
+                              className="rounded p-2 text-gray-400 hover:bg-red-50 hover:text-red-600 transition-colors"
+                              aria-label={`Delete ${session.name}`}
+                              title="Delete BOM"
+                            >
+                              <Trash2 className="h-4 w-4" />
+                            </button>
+                          )}
+
                           <ChevronRight className="h-6 w-6 text-gray-400 transition-transform group-hover:translate-x-1 group-hover:text-blue-600" />
                         </div>
                       </div>
@@ -334,6 +364,48 @@ export function BOMLibrary({
           )}
         </div>
       </main>
+
+      {pendingDelete && (
+        <div
+          className="fixed inset-0 z-50 flex items-center justify-center bg-slate-900/40 p-4"
+          onClick={() => !deleting && setPendingDelete(null)}
+        >
+          <div
+            className="w-full max-w-md rounded-xl bg-white p-6 shadow-xl"
+            onClick={(e) => e.stopPropagation()}
+          >
+            <div className="flex items-start gap-3">
+              <div className="rounded-full bg-red-100 p-2 text-red-600">
+                <AlertTriangle className="h-5 w-5" />
+              </div>
+              <div className="flex-1">
+                <h3 className="text-lg font-semibold text-slate-900">Delete this BOM?</h3>
+                <p className="mt-1 text-sm text-slate-600">
+                  This permanently removes <span className="font-semibold">{pendingDelete.name}</span> and
+                  every spec statement, architecture, and subsystem it contains. This cannot be undone.
+                </p>
+              </div>
+            </div>
+            <div className="mt-6 flex justify-end gap-2">
+              <Button
+                variant="outline"
+                disabled={deleting}
+                onClick={() => setPendingDelete(null)}
+              >
+                Cancel
+              </Button>
+              <Button
+                disabled={deleting}
+                onClick={() => void confirmDelete()}
+                className="bg-red-600 text-white hover:bg-red-700"
+              >
+                {deleting ? <Loader2 className="h-4 w-4 animate-spin" /> : <Trash2 className="h-4 w-4 mr-1" />}
+                Delete BOM
+              </Button>
+            </div>
+          </div>
+        </div>
+      )}
     </div>
   );
 }

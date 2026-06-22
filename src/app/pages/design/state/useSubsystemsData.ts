@@ -70,28 +70,29 @@ export function useSubsystemsData(sessionId: string | null): UseSubsystemsData {
     setIsGenerating(true);
     setError(null);
     try {
-      // The /subsystems/generate route requires FSM >= CONNECTIONS_BUILT.
-      // In the consolidated Design page the user never explicitly confirms
-      // the architecture — clicking Generate Subsystems IS the implicit
-      // confirmation. Call confirmAllConnections first; it's idempotent
-      // when the FSM is already at CONNECTIONS_BUILT or later, so reruns
-      // are safe.
+      // /subsystems/generate requires FSM >= CONNECTIONS_BUILT. By the time
+      // the user can click this button, readiness already reports
+      // can_complete = true (we gate the button on it). But the FSM advance
+      // only happens on /connections/confirm-all, not on per-net confirms.
+      // So defensively call confirmAllConnections — it's idempotent for
+      // already-confirmed nets and just bumps the FSM if needed.
       try {
         await confirmAllConnections(sessionId, null, false);
       } catch (confirmErr) {
+        // If the FSM is already at CONNECTIONS_BUILT (or beyond), the
+        // confirm-all call is a no-op and may succeed or return a benign
+        // error; either way we proceed to generate. Only bail on explicit
+        // 422 (no connections exist) or 409 (still has blockers).
         const msg = confirmErr instanceof Error ? confirmErr.message : '';
-        // 422 = no connections exist. Surface this as a friendlier error
-        // and bail — generating subsystems on an empty architecture is
-        // pointless.
-        if (msg.includes('422') || msg.toLowerCase().includes('no connections')) {
+        if (msg.includes('422')) {
           throw new Error('No architecture connections exist yet. Regenerate the architecture first.');
         }
-        // 409 = architecture has unresolved blockers. Surface them.
-        if (msg.includes('409') || msg.toLowerCase().includes('blocker')) {
-          throw new Error('Architecture has unresolved blockers. Open the architecture canvas to resolve them, then try again.');
+        if (msg.includes('409')) {
+          throw new Error('Architecture has unresolved blockers. Resolve the review queue items in the canvas, then try again.');
         }
-        // Any other failure: let it bubble.
-        throw confirmErr;
+        // Any other error — log but proceed; the subsequent generate call
+        // will surface a real failure if the FSM truly isn't ready.
+        console.warn('[design] confirmAllConnections returned an error; proceeding to generate', confirmErr);
       }
 
       const resp = await generateSubsystems(sessionId);

@@ -1,13 +1,15 @@
 import { Link, useLocation, useNavigate } from 'react-router-dom';
-import { Cpu, ArrowLeft, Command, MessageSquare } from 'lucide-react';
+import { AlertTriangle, Cpu, ArrowLeft, Loader2, LogOut, MessageSquare, Trash2, XCircle } from 'lucide-react';
+import { toast } from 'sonner';
 import { ChatDrawer } from '@/app/shared/components/ChatDrawer';
 import { Button } from '@/app/shared/components/ui/button';
 import { StageIndicator } from '@/app/shared/components/StageIndicator';
 import { useState, useEffect } from 'react';
 import { CommandPalette } from '@/app/shared/components/CommandPalette';
 import type { SessionStage } from '@/app/types';
+import { useAuth } from '@/app/context/AuthContext';
 import { useSession } from '@/app/context/SessionContext';
-import { getBOMBySessionId } from '@/app/services/api';
+import { deleteDesign, getBOMBySessionId } from '@/app/services/api';
 import { useQueryParams } from '@/app/shared/hooks/useQueryParams';
 import { getRouteForStage, getStageForNumber, getStageNumber, ROUTE_TO_STAGE, STAGE_TO_ROUTE, withSession } from '@/app/shared/utils/workflowStages';
 
@@ -26,6 +28,9 @@ export function Layout({ children, showBackButton = true, showStageIndicator = f
   const navigate = useNavigate();
   const [commandPaletteOpen, setCommandPaletteOpen] = useState(false);
   const [drawerOpen, setDrawerOpen] = useState(false);
+  const [cancelConfirmOpen, setCancelConfirmOpen] = useState(false);
+  const [cancelInFlight, setCancelInFlight] = useState(false);
+  const { user, signOut } = useAuth();
   const {
     sessionId,
     setSessionId,
@@ -134,8 +139,35 @@ export function Layout({ children, showBackButton = true, showStageIndicator = f
     setCommandPaletteOpen(false);
   };
 
-  // Don't show header on library or completed pages
-  if (location.pathname === '/' || location.pathname === '/completed') {
+  const handleCancelBomUpload = async () => {
+    if (!activeSessionId || cancelInFlight) return;
+    setCancelInFlight(true);
+    try {
+      await deleteDesign(activeSessionId);
+      toast.success('BOM upload cancelled');
+      setSessionId(null);
+      setCurrentStage(null);
+      setCancelConfirmOpen(false);
+      navigate('/portal');
+    } catch (err) {
+      toast.error(err instanceof Error ? err.message : 'Failed to cancel BOM upload');
+    } finally {
+      setCancelInFlight(false);
+    }
+  };
+
+  // Pages that render their own chrome — no Layout header for these. Public
+  // pages (landing, login, register) are not wrapped in Layout in App.tsx
+  // at all, but we keep '/' here as a defensive no-op in case anything is
+  // passed through.
+  if (
+    location.pathname === '/'
+    || location.pathname === '/completed'
+    || location.pathname === '/portal'
+    || location.pathname === '/library'
+    || location.pathname === '/login'
+    || location.pathname === '/register'
+  ) {
     return <>{children}</>;
   }
 
@@ -145,7 +177,7 @@ export function Layout({ children, showBackButton = true, showStageIndicator = f
         <div className="flex items-center justify-between mb-4">
           <div className="flex items-center gap-3">
             {showBackButton && (
-              <Link to="/">
+              <Link to="/portal">
                 <Button variant="ghost" size="icon" className="mr-2">
                   <ArrowLeft className="h-5 w-5" />
                 </Button>
@@ -159,6 +191,20 @@ export function Layout({ children, showBackButton = true, showStageIndicator = f
           </div>
 
           <div className="flex items-center gap-2">
+            {/* Cancel BOM Upload — only while an active session is being worked
+                through the staged workflow. Tucked away from the primary
+                actions so it can't be hit accidentally. */}
+            {showStageIndicator && activeSessionId && (
+              <button
+                onClick={() => setCancelConfirmOpen(true)}
+                className="flex items-center gap-2 rounded-lg border border-red-200 bg-white px-3 py-2 text-sm text-red-700 hover:bg-red-50"
+                title="Permanently delete this BOM and exit the workflow"
+              >
+                <XCircle className="h-4 w-4" />
+                <span>Cancel BOM Upload</span>
+              </button>
+            )}
+
             {/* Chat button — hidden on pages with their own console */}
             {activeSessionId && !hasOwnChat && (
               <button
@@ -174,18 +220,26 @@ export function Layout({ children, showBackButton = true, showStageIndicator = f
               </button>
             )}
 
-            <button
-              onClick={() => setCommandPaletteOpen(true)}
-              className="flex items-center gap-2 rounded-lg border border-gray-300 bg-white px-4 py-2 text-sm text-gray-700 hover:bg-gray-50"
-            >
-              <Command className="h-4 w-4" />
-              <span>Commands</span>
-              <kbd className="rounded bg-gray-100 px-1.5 py-0.5 text-xs">⌘K</kbd>
-            </button>
+            {/* Sign out — Supabase signOut + bounce to landing. */}
+            {user && (
+              <button
+                type="button"
+                onClick={async () => {
+                  await signOut();
+                  navigate('/');
+                }}
+                className="flex items-center gap-1.5 rounded-lg border border-gray-300 bg-white px-3 py-2 text-sm text-gray-700 hover:bg-gray-50"
+                title="Sign out"
+              >
+                <LogOut className="h-4 w-4" />
+                <span className="hidden md:inline">Sign out</span>
+              </button>
+            )}
           </div>
         </div>
 
         {showStageIndicator && indicatorStage && (
+          <div className="flex w-full justify-center">
           <StageIndicator
             currentStage={indicatorStage}
             maxReachedStage={activeMaxReachedStage}
@@ -194,6 +248,7 @@ export function Layout({ children, showBackButton = true, showStageIndicator = f
               if (route) navigate(withSession(route, activeSessionId));
             }}
           />
+          </div>
         )}
       </header>
 
@@ -210,6 +265,48 @@ export function Layout({ children, showBackButton = true, showStageIndicator = f
       {/* Slide-over chat drawer — hidden on pages with their own embedded chat */}
       {!hasOwnChat && (
         <ChatDrawer open={drawerOpen} onClose={() => setDrawerOpen(false)} />
+      )}
+
+      {cancelConfirmOpen && (
+        <div
+          className="fixed inset-0 z-50 flex items-center justify-center bg-slate-900/40 p-4"
+          onClick={() => !cancelInFlight && setCancelConfirmOpen(false)}
+        >
+          <div
+            className="w-full max-w-md rounded-xl bg-white p-6 shadow-xl"
+            onClick={(e) => e.stopPropagation()}
+          >
+            <div className="flex items-start gap-3">
+              <div className="rounded-full bg-red-100 p-2 text-red-600">
+                <AlertTriangle className="h-5 w-5" />
+              </div>
+              <div className="flex-1">
+                <h3 className="text-lg font-semibold text-slate-900">Cancel BOM upload?</h3>
+                <p className="mt-1 text-sm text-slate-600">
+                  This permanently deletes the design and every spec statement, architecture
+                  artifact, and subsystem it contains. This cannot be undone.
+                </p>
+              </div>
+            </div>
+            <div className="mt-6 flex justify-end gap-2">
+              <Button
+                variant="outline"
+                disabled={cancelInFlight}
+                onClick={() => setCancelConfirmOpen(false)}
+              >
+                Keep working
+              </Button>
+              <Button
+                disabled={cancelInFlight}
+                onClick={() => void handleCancelBomUpload()}
+                className="bg-red-600 text-white hover:bg-red-700"
+              >
+                {cancelInFlight ? <Loader2 className="h-4 w-4 animate-spin" /> : <Trash2 className="h-4 w-4 mr-1" />}
+                Delete BOM
+              </Button>
+            </div>
+          </div>
+        </div>
       )}
     </div>
   );

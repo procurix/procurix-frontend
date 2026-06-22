@@ -1,5 +1,6 @@
 export {
   createDesign,
+  deleteDesign,
   getAllBOMs,
   getBOMBySessionId,
   getCurrentStage,

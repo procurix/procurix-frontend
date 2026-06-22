@@ -2978,7 +2978,8 @@ function SystemArchitectureViewInner({ components, onArchitectureComplete, backe
                   )}
                 </div>
 
-                {Boolean(selectedNetBlock.specs?.isPersistedNet) && (
+                {Boolean(selectedNetBlock.specs?.isPersistedNet)
+                  && String(selectedNetBlock.specs?.netStatus || 'suggested').toLowerCase() !== 'confirmed' && (
                   <div className="mt-3 grid grid-cols-2 gap-2">
                     <Button
                       type="button"

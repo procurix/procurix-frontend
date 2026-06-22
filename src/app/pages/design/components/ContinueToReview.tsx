@@ -20,11 +20,12 @@ export function ContinueToReview() {
   const enabled = approvedReqs > 0 && hasSubsystems && hasSubsystemRequirements;
 
   const reasons: string[] = [];
-  if (approvedReqs === 0) reasons.push('Approve at least one requirement.');
+  if (approvedReqs === 0) reasons.push('Approve at least one spec statement.');
   if (!hasSubsystems) reasons.push('Generate subsystems.');
-  if (hasSubsystems && !hasSubsystemRequirements) {
-    reasons.push('Generate subsystem requirements (open a subsystem in the side panel).');
-  }
+  // Note: hasSubsystemRequirements still gates `enabled` below, so the
+  // button stays disabled until at least one subsystem has requirements,
+  // but we intentionally don't surface that reason in the hint (per the
+  // request to hide the 'generate subsystem requirements' info message).
 
   return (
     <div className="pointer-events-none absolute bottom-4 right-4 z-30 flex flex-col items-end">

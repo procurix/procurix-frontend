@@ -1,3 +1,5 @@
+import { supabase } from '@/app/lib/supabase';
+
 const BASE_URL = import.meta.env.VITE_API_BASE_URL || 'http://localhost:8090/api';
 const API_DEBUG = import.meta.env.DEV;
 
@@ -5,7 +7,20 @@ function encodeMpn(mpn: string): string {
     return mpn.split('/').map(encodeURIComponent).join('/');
 }
 
-// Verbose fetch wrapper
+/** Attach the current Supabase access token (if any) to an init object. */
+async function _withAuth(init?: RequestInit): Promise<RequestInit> {
+    const { data } = await supabase.auth.getSession();
+    const token = data.session?.access_token;
+    if (!token) return init ?? {};
+    const existingHeaders = new Headers(init?.headers);
+    existingHeaders.set('Authorization', `Bearer ${token}`);
+    return { ...init, headers: existingHeaders };
+}
+
+// Verbose fetch wrapper. Adds the Supabase bearer token to every request.
+// On 401, tries one silent token refresh and retries the original request.
+// If the refresh fails, fires a 'auth:session-expired' window event so the
+// SessionExpiredModal can take over the UI.
 async function apiFetch(url: string, init?: RequestInit): Promise<Response> {
     const method = init?.method ?? 'GET';
     const t0 = performance.now();
@@ -20,7 +35,23 @@ async function apiFetch(url: string, init?: RequestInit): Promise<Response> {
         console.log(`%c>> ${method} ${url}`, 'color:#4ade80;font-weight:bold', bodyPreview || '');
     }
 
-    const response = await fetch(url, init);
+    const authedInit = await _withAuth(init);
+    let response = await fetch(url, authedInit);
+
+    if (response.status === 401) {
+        // Token expired or invalid. Try a single silent refresh and retry.
+        const { data, error } = await supabase.auth.refreshSession();
+        if (!error && data.session) {
+            const retryInit = await _withAuth(init);
+            response = await fetch(url, retryInit);
+        }
+        if (response.status === 401) {
+            // Refresh failed or retry still rejected. Surface the
+            // session-expired flow and let SessionExpiredModal handle it.
+            window.dispatchEvent(new Event('auth:session-expired'));
+        }
+    }
+
     if (API_DEBUG) {
         const elapsed = (performance.now() - t0).toFixed(0);
         const color = response.ok ? '#4ade80' : '#f87171';
@@ -805,6 +836,18 @@ export async function listDesigns(): Promise<Design[]> {
 export async function getDesign(designId: string): Promise<Design> {
     const design = await apiJSON<Omit<Design, 'current_stage'> & { current_stage?: number }>(`${BASE_URL}/designs/${designId}`);
     return { ...design, current_stage: design.current_stage ?? fsmToStage(design.fsm_state) };
+}
+
+/** Permanently delete a design and everything that references it. Returns
+ *  true on success, false if the design doesn't exist, throws otherwise. */
+export async function deleteDesign(designId: string): Promise<boolean> {
+    const response = await apiFetch(`${BASE_URL}/designs/${designId}`, { method: 'DELETE' });
+    if (response.status === 404) return false;
+    if (!response.ok) {
+        const text = await response.text();
+        throw new Error(`${response.status} ${text}`);
+    }
+    return true;
 }
 
 export async function uploadBOM(designId: string, file: File, mapping?: BomColumnMapping): Promise<UploadResponse> {

@@ -32,9 +32,9 @@ export function RequirementsRail({ collapsed }: { collapsed: boolean }) {
     try {
       await confirmAllRequirements(sessionId, { force: true });
       await reloadRequirements();
-      toast.success('All requirements approved');
+      toast.success('All spec statements approved');
     } catch (err) {
-      toast.error(err instanceof Error ? err.message : 'Failed to approve all requirements');
+      toast.error(err instanceof Error ? err.message : 'Failed to approve all spec statements');
     } finally {
       setApprovingAll(false);
     }
@@ -47,7 +47,7 @@ export function RequirementsRail({ collapsed }: { collapsed: boolean }) {
         <div className="text-[10px] font-semibold text-slate-600">{requirements.length}</div>
         <div
           className="text-[10px] text-amber-600"
-          title={`${summary.gaps} requirements with quality gaps`}
+          title={`${summary.gaps} spec statements with quality gaps`}
         >
           {summary.gaps > 0 ? `⚠ ${summary.gaps}` : ''}
         </div>
@@ -60,7 +60,7 @@ export function RequirementsRail({ collapsed }: { collapsed: boolean }) {
       <header className="shrink-0 border-b border-slate-200 px-4 py-3">
         <div className="flex items-center gap-2">
           <FileText className="h-4 w-4 text-slate-500" />
-          <h2 className="text-sm font-semibold text-slate-800">Requirements</h2>
+          <h2 className="text-sm font-semibold text-slate-800">Spec Statements</h2>
           <span className="text-xs text-slate-500">{requirements.length}</span>
           <div className="ml-auto flex items-center gap-1.5">
             {requirements.length > 0 && unapprovedCount > 0 && (
@@ -69,8 +69,8 @@ export function RequirementsRail({ collapsed }: { collapsed: boolean }) {
                 onClick={() => void handleApproveAll()}
                 disabled={approvingAll}
                 className="relative flex h-7 w-7 items-center justify-center rounded text-emerald-600 hover:bg-emerald-50 disabled:opacity-60"
-                title={`Approve all ${unapprovedCount} remaining requirement${unapprovedCount === 1 ? '' : 's'}`}
-                aria-label="Approve all remaining requirements"
+                title={`Approve all ${unapprovedCount} remaining spec statement${unapprovedCount === 1 ? '' : 's'}`}
+                aria-label="Approve all remaining spec statements"
               >
                 {approvingAll ? (
                   <Loader2 className="h-4 w-4 animate-spin" />
@@ -100,7 +100,7 @@ export function RequirementsRail({ collapsed }: { collapsed: boolean }) {
       <div className="flex-1 overflow-y-auto">
         {isLoading ? (
           <div className="flex items-center justify-center gap-2 p-6 text-xs text-slate-500">
-            <Loader2 className="h-3 w-3 animate-spin" /> Loading requirements…
+            <Loader2 className="h-3 w-3 animate-spin" /> Loading spec statements…
           </div>
         ) : error ? (
           <div className="space-y-2 px-4 py-6 text-xs text-slate-600">
@@ -120,8 +120,8 @@ export function RequirementsRail({ collapsed }: { collapsed: boolean }) {
           <div className="space-y-3 px-4 py-6 text-xs text-slate-600">
             <p>
               {needsGeneration
-                ? 'No requirements yet. Generate them from the BOM and confirmed classifications.'
-                : 'No requirements exist for this session.'}
+                ? 'No spec statements yet. Generate them from the BOM and confirmed classifications.'
+                : 'No spec statements exist for this session.'}
             </p>
             <button
               type="button"
@@ -135,7 +135,7 @@ export function RequirementsRail({ collapsed }: { collapsed: boolean }) {
                 </>
               ) : (
                 <>
-                  <Sparkles className="h-3 w-3" /> Generate Requirements
+                  <Sparkles className="h-3 w-3" /> Generate Spec Statements
                 </>
               )}
             </button>

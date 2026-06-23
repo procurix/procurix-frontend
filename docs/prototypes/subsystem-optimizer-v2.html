@@ -869,6 +869,7 @@
         <div class="mode-toggle">
           <button class="btn active" data-app-mode="optimizer">Setup/Run</button>
           <button class="btn" data-app-mode="observations">Evidence Intake</button>
+          <button class="btn" data-app-mode="buckets">Buckets</button>
           <button class="btn" data-app-mode="metrics">Metrics</button>
           <button class="btn" data-app-mode="manifests">Facts</button>
           <button class="btn" data-app-mode="inspector">Inspector</button>
@@ -1197,6 +1198,73 @@
       </section>
     </main>
 
+    <main class="workspace hidden" id="bucketsWorkspace">
+      <section class="column">
+        <section class="panel">
+          <div class="panel-head">
+            <div>
+              <div class="panel-title">Metric Buckets</div>
+              <div class="panel-subtitle">Clusters of labels that mean the same measurement.</div>
+            </div>
+            <button class="btn" id="refreshBuckets">Refresh</button>
+          </div>
+          <div class="panel-body">
+            <div class="list" style="margin-bottom:10px">
+              <div class="field">
+                <label for="bucketSearch">Search buckets</label>
+                <input id="bucketSearch" placeholder="unit cost, NACS inlet, validation..." />
+              </div>
+              <div class="field">
+                <label for="bucketStatusFilter">Status</label>
+                <select id="bucketStatusFilter">
+                  <option value="all">All buckets</option>
+                  <option value="resolved">Resolved</option>
+                  <option value="unresolved">Unresolved</option>
+                  <option value="suggested">Suggested</option>
+                </select>
+              </div>
+            </div>
+            <div id="bucketSummary" class="list" style="margin-bottom:10px"></div>
+            <div id="metricBucketList" class="list"></div>
+          </div>
+        </section>
+      </section>
+
+      <section class="column">
+        <section class="panel">
+          <div class="panel-head">
+            <div>
+              <div class="panel-title">Canonical Term Buckets</div>
+              <div class="panel-subtitle">Clusters of labels that refer to the same thing.</div>
+            </div>
+          </div>
+          <div class="panel-body">
+            <div id="canonicalBucketList" class="list"></div>
+          </div>
+        </section>
+      </section>
+
+      <section class="column right">
+        <section class="panel">
+          <div class="panel-head">
+            <div>
+              <div class="panel-title">Evidence References</div>
+              <div class="panel-subtitle">Where the selected bucket appears in facts, observations, and staged candidates.</div>
+            </div>
+          </div>
+          <div class="panel-body">
+            <div class="toolbar" style="justify-content:flex-start;margin-bottom:10px">
+              <button class="btn active" data-bucket-link-filter="all">All</button>
+              <button class="btn" data-bucket-link-filter="fact">Facts</button>
+              <button class="btn" data-bucket-link-filter="observation">Observations</button>
+              <button class="btn" data-bucket-link-filter="candidate">Staged</button>
+            </div>
+            <div id="bucketEvidenceList" class="list"></div>
+          </div>
+        </section>
+      </section>
+    </main>
+
     <main class="workspace manifest-workspace hidden" id="observationsWorkspace">
       <section class="column">
         <section class="panel">
@@ -1454,6 +1522,14 @@
       activeManifest: null,
       evidenceIntake: null,
       metrics: [],
+      metricClusters: [],
+      canonicalClusters: [],
+      selectedBucketKind: null,
+      selectedBucketId: null,
+      bucketLinks: [],
+      bucketSearch: "",
+      bucketStatusFilter: "all",
+      bucketLinkFilter: "all",
       selectedMetricKey: null,
       observationBatch: null,
       observationBlocks: [],
@@ -1477,6 +1553,18 @@
     const esc = (value) => String(value ?? "").replace(/[&<>"']/g, (ch) => ({ "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;", "'": "&#039;" }[ch]));
     const percent = (value) => `${Math.round(Number(value || 0) * 100)}%`;
     const DEBUG_OPTIMIZER = true;
+    const BUCKET_TYPES = {
+      metric: {
+        label: "Metric",
+        clusterEndpoint: "/normalization/metrics/clusters",
+        linksEndpoint: (id) => `/normalization/metrics/clusters/${encodeURIComponent(id)}/links`,
+      },
+      canonical: {
+        label: "Canonical",
+        clusterEndpoint: "/normalization/canonical/clusters",
+        linksEndpoint: (id) => `/normalization/canonical/clusters/${encodeURIComponent(id)}/links`,
+      },
+    };
 
     function debugLog(label, payload = null) {
       if (!DEBUG_OPTIMIZER) return;
@@ -1507,6 +1595,7 @@
       el("optimizerWorkspace").classList.toggle("hidden", mode !== "optimizer");
       el("manifestsWorkspace").classList.toggle("hidden", mode !== "manifests");
       el("metricsWorkspace").classList.toggle("hidden", mode !== "metrics");
+      el("bucketsWorkspace").classList.toggle("hidden", mode !== "buckets");
       el("observationsWorkspace").classList.toggle("hidden", mode !== "observations");
       el("inspectorWorkspace").classList.toggle("hidden", mode !== "inspector");
       document.querySelectorAll("[data-app-mode]").forEach((button) => {
@@ -1514,6 +1603,10 @@
       });
       if (mode === "metrics") {
         loadMetrics();
+      }
+      if (mode === "buckets") {
+        renderBucketsWorkspace();
+        loadBuckets();
       }
       if (mode === "manifests") {
         renderManifestWorkspace();
@@ -2241,6 +2334,212 @@
       } catch (error) {
         debugLog("loadMetrics error", error);
         setStatus(`Could not load metrics: ${error.message}.`);
+      }
+    }
+
+    function bucketAliases(bucket) {
+      return (bucket.aliases || []).map((item) => item.raw_label || item.label || item.normalized_label).filter(Boolean);
+    }
+
+    function bucketTitle(bucket) {
+      return bucket?.display_label || bucket?.display_name || bucket?.id || "Untitled bucket";
+    }
+
+    function bucketSearchText(bucket) {
+      return [
+        bucketTitle(bucket),
+        bucket.status,
+        bucket.term_type,
+        bucket.primary_metric_key,
+        ...bucketAliases(bucket),
+      ].filter(Boolean).join(" ").toLowerCase();
+    }
+
+    function bucketStatusClass(status) {
+      if (status === "resolved" || status === "active") return "green";
+      if (status === "rejected" || status === "deprecated") return "red";
+      return "amber";
+    }
+
+    function filterBuckets(items) {
+      const query = String(state.bucketSearch || "").trim().toLowerCase();
+      const status = state.bucketStatusFilter || "all";
+      return (items || []).filter((bucket) => {
+        const statusMatch = status === "all" || bucket.status === status;
+        const queryMatch = !query || bucketSearchText(bucket).includes(query);
+        return statusMatch && queryMatch;
+      });
+    }
+
+    function selectedBucket() {
+      if (state.selectedBucketKind === "metric") {
+        return (state.metricClusters || []).find((item) => item.id === state.selectedBucketId) || null;
+      }
+      if (state.selectedBucketKind === "canonical") {
+        return (state.canonicalClusters || []).find((item) => item.id === state.selectedBucketId) || null;
+      }
+      return null;
+    }
+
+    function renderBucketCard(bucket, kind) {
+      const active = state.selectedBucketKind === kind && state.selectedBucketId === bucket.id;
+      const aliases = bucketAliases(bucket);
+      const typeConfig = BUCKET_TYPES[kind] || { label: kind };
+      const subtitle = kind === "metric"
+        ? `${bucket.primary_metric_key || "unmapped metric"} | ${bucket.status || "unknown"}`
+        : `${bucket.term_type || "generic"} | ${bucket.status || "unknown"}`;
+      return `
+        <button class="candidate ${active ? "active" : ""}" data-bucket-kind="${kind}" data-bucket-id="${esc(bucket.id)}">
+          <div class="candidate-head">
+            <h3>${esc(bucketTitle(bucket))}</h3>
+            <span class="badge ${bucketStatusClass(bucket.status)}">${esc(bucket.status || "unknown")}</span>
+          </div>
+          <p>${esc(subtitle)}</p>
+          <div class="badge-row">
+            <span class="badge gray">${esc(typeConfig.label)}</span>
+            ${aliases.slice(0, 6).map((alias) => `<span class="badge">${esc(alias)}</span>`).join("")}
+            ${aliases.length > 6 ? `<span class="badge gray">+${aliases.length - 6}</span>` : ""}
+          </div>
+        </button>
+      `;
+    }
+
+    function bucketLinkLabel(link) {
+      const source = `${link.source_type || "source"}:${shortHash(link.source_id)}`;
+      const status = link.reviewed ? "reviewed" : (link.status || "suggested");
+      return `${source} | ${link.link_type || "link"} | ${status}`;
+    }
+
+    function sourceTypeFamily(sourceType) {
+      const value = String(sourceType || "");
+      if (value === "fact" || value === "fact_candidate") return "fact";
+      if (value === "observation" || value === "observation_candidate") return "observation";
+      if (value.includes("candidate")) return "candidate";
+      return value || "other";
+    }
+
+    function filteredBucketLinks() {
+      const filter = state.bucketLinkFilter || "all";
+      return (state.bucketLinks || []).filter((link) => {
+        if (filter === "all") return true;
+        if (filter === "candidate") return String(link.source_type || "").includes("candidate");
+        return sourceTypeFamily(link.source_type) === filter;
+      });
+    }
+
+    function renderBucketEvidence() {
+      const bucket = selectedBucket();
+      if (!bucket) {
+        el("bucketEvidenceList").innerHTML = `<div class="signal"><span class="dot warn"></span><div><strong>No bucket selected</strong><span>Select a metric or canonical bucket to inspect evidence links.</span></div></div>`;
+        return;
+      }
+      const title = bucketTitle(bucket);
+      const allLinks = state.bucketLinks || [];
+      const links = filteredBucketLinks();
+      const counts = allLinks.reduce((acc, link) => {
+        const family = sourceTypeFamily(link.source_type);
+        acc[family] = (acc[family] || 0) + 1;
+        return acc;
+      }, {});
+      el("bucketEvidenceList").innerHTML = `
+        <div class="signal">
+          <span class="dot ok"></span>
+          <div><strong>${esc(title)}</strong><span>${allLinks.length} linked references | facts ${counts.fact || 0} | observations ${counts.observation || 0} | staged ${counts.candidate || 0}</span></div>
+        </div>
+        ${links.length ? links.map((link) => `
+          <div class="candidate">
+            <div class="candidate-head">
+              <h3>${esc(link.raw_text || link.link_type || "Evidence link")}</h3>
+              <span class="badge ${link.reviewed ? "green" : "amber"}">${esc(link.reviewed ? "reviewed" : (link.status || "suggested"))}</span>
+            </div>
+            <p>${esc(bucketLinkLabel(link))}</p>
+            <div class="badge-row">
+              <span class="badge">${esc(link.source || "source")}</span>
+              ${link.confidence !== null && link.confidence !== undefined ? `<span class="badge">${percent(link.confidence)}</span>` : ""}
+              ${link.canonical_term_id ? `<span class="badge">canonical ${esc(shortHash(link.canonical_term_id))}</span>` : ""}
+              ${link.metric_cluster_id ? `<span class="badge">metric ${esc(shortHash(link.metric_cluster_id))}</span>` : ""}
+            </div>
+            <pre class="json-box" style="margin-top:8px">${esc(JSON.stringify(link.metadata || {}, null, 2))}</pre>
+          </div>
+        `).join("") : `<div class="signal"><span class="dot warn"></span><div><strong>No evidence links yet</strong><span>This bucket may only have aliases, or no accepted/staged evidence has been linked to it yet.</span></div></div>`}
+      `;
+    }
+
+    function renderBucketsWorkspace() {
+      const metrics = filterBuckets(state.metricClusters || []);
+      const canonical = filterBuckets(state.canonicalClusters || []);
+      const totalMetrics = (state.metricClusters || []).length;
+      const totalCanonical = (state.canonicalClusters || []).length;
+      el("bucketSummary").innerHTML = `
+        <div class="score-grid">
+          <div class="score"><span>Metric buckets</span><strong>${metrics.length}/${totalMetrics}</strong></div>
+          <div class="score"><span>Canonical buckets</span><strong>${canonical.length}/${totalCanonical}</strong></div>
+        </div>
+      `;
+      el("metricBucketList").innerHTML = metrics.length
+        ? metrics.map((bucket) => renderBucketCard(bucket, "metric")).join("")
+        : `<div class="signal"><span class="dot warn"></span><div><strong>No metric buckets</strong><span>Upload evidence or create metric buckets from the normalization tools.</span></div></div>`;
+      el("canonicalBucketList").innerHTML = canonical.length
+        ? canonical.map((bucket) => renderBucketCard(bucket, "canonical")).join("")
+        : `<div class="signal"><span class="dot warn"></span><div><strong>No canonical buckets</strong><span>Upload evidence or create canonical buckets from the normalization tools.</span></div></div>`;
+      renderBucketEvidence();
+    }
+
+    async function loadBucketLinks(kind, bucketId) {
+      if (!kind || !bucketId) {
+        state.bucketLinks = [];
+        renderBucketEvidence();
+        return;
+      }
+      const config = BUCKET_TYPES[kind];
+      if (!config) {
+        setStatus(`Unknown bucket kind: ${kind}`);
+        return;
+      }
+      const url = `${apiBase()}${config.linksEndpoint(bucketId)}?limit=200`;
+      try {
+        const payload = await fetchJson(url);
+        state.bucketLinks = payload.items || [];
+        setLastResponse("loadBucketLinks response", payload);
+        renderBucketEvidence();
+      } catch (error) {
+        debugLog("loadBucketLinks error", error);
+        state.bucketLinks = [];
+        renderBucketEvidence();
+        setStatus(`Could not load bucket evidence: ${error.message}.`);
+      }
+    }
+
+    async function selectBucket(kind, bucketId) {
+      state.selectedBucketKind = kind;
+      state.selectedBucketId = bucketId;
+      state.bucketLinks = [];
+      renderBucketsWorkspace();
+      await loadBucketLinks(kind, bucketId);
+    }
+
+    async function loadBuckets() {
+      setStatus("Loading normalization buckets...");
+      try {
+        const [metricPayload, canonicalPayload] = await Promise.all([
+          fetchJson(`${apiBase()}${BUCKET_TYPES.metric.clusterEndpoint}?limit=200`),
+          fetchJson(`${apiBase()}${BUCKET_TYPES.canonical.clusterEndpoint}?limit=200`),
+        ]);
+        state.metricClusters = metricPayload.items || [];
+        state.canonicalClusters = canonicalPayload.items || [];
+        if (!selectedBucket()) {
+          const firstMetric = state.metricClusters[0];
+          const firstCanonical = state.canonicalClusters[0];
+          state.selectedBucketKind = firstMetric ? "metric" : firstCanonical ? "canonical" : null;
+          state.selectedBucketId = firstMetric?.id || firstCanonical?.id || null;
+        }
+        setLastResponse("loadBuckets response", { metrics: metricPayload, canonical: canonicalPayload });
+        renderBucketsWorkspace();
+        if (state.selectedBucketKind && state.selectedBucketId) await loadBucketLinks(state.selectedBucketKind, state.selectedBucketId);
+        setStatus(`Loaded ${state.metricClusters.length} metric buckets and ${state.canonicalClusters.length} canonical buckets.`);
+      } catch (error) {
+        debugLog("loadBuckets error", error);
+        setStatus(`Could not load buckets: ${error.message}.`);
       }
     }
 
@@ -4231,6 +4530,22 @@
         return;
       }
 
+      const bucketButton = event.target.closest("[data-bucket-kind][data-bucket-id]");
+      if (bucketButton) {
+        selectBucket(bucketButton.dataset.bucketKind, bucketButton.dataset.bucketId);
+        return;
+      }
+
+      const bucketLinkFilter = event.target.closest("[data-bucket-link-filter]");
+      if (bucketLinkFilter) {
+        state.bucketLinkFilter = bucketLinkFilter.dataset.bucketLinkFilter || "all";
+        document.querySelectorAll("[data-bucket-link-filter]").forEach((button) => {
+          button.classList.toggle("active", button === bucketLinkFilter);
+        });
+        renderBucketEvidence();
+        return;
+      }
+
       const suggestedMetricAction = event.target.closest("[data-suggested-metric-action]");
       if (suggestedMetricAction) {
         reviewSuggestedMetric(
@@ -4431,6 +4746,12 @@
     });
 
     document.addEventListener("change", (event) => {
+      if (event.target.id === "bucketStatusFilter") {
+        state.bucketStatusFilter = event.target.value || "all";
+        renderBucketsWorkspace();
+        return;
+      }
+
       const blockColumn = event.target.closest("[data-observation-block-column]");
       if (blockColumn) {
         state.observationBlockColumnDrafts[blockColumnDraftKey(blockColumn.dataset.observationBlockColumn, blockColumn.dataset.observationBlockColumnField)] = blockColumn.value;
@@ -4473,6 +4794,12 @@
     });
 
     document.addEventListener("input", (event) => {
+      if (event.target.id === "bucketSearch") {
+        state.bucketSearch = event.target.value || "";
+        renderBucketsWorkspace();
+        return;
+      }
+
       const blockColumn = event.target.closest("[data-observation-block-column]");
       if (blockColumn) {
         state.observationBlockColumnDrafts[blockColumnDraftKey(blockColumn.dataset.observationBlockColumn, blockColumn.dataset.observationBlockColumnField)] = blockColumn.value;
@@ -4554,6 +4881,7 @@
     el("addManualFact").addEventListener("click", addManualFact);
     el("commitManifest").addEventListener("click", commitManifest);
     el("refreshMetrics").addEventListener("click", loadMetrics);
+    el("refreshBuckets").addEventListener("click", loadBuckets);
     el("saveMetric").addEventListener("click", saveMetric);
     el("uploadObservations").addEventListener("click", uploadObservations);
     el("approveObservationMapping").addEventListener("click", approveObservationMapping);

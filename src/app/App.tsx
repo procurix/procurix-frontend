@@ -11,6 +11,8 @@ import { SessionExpiredModal } from './shared/components/SessionExpiredModal';
 const LandingPage = lazy(() => import('./pages/landing/LandingPage').then(module => ({ default: module.LandingPage })));
 const LoginPage = lazy(() => import('./pages/auth/LoginPage').then(module => ({ default: module.LoginPage })));
 const RegisterPage = lazy(() => import('./pages/auth/RegisterPage').then(module => ({ default: module.RegisterPage })));
+const ForgotPasswordPage = lazy(() => import('./pages/auth/ForgotPasswordPage').then(module => ({ default: module.ForgotPasswordPage })));
+const ResetPasswordPage = lazy(() => import('./pages/auth/ResetPasswordPage').then(module => ({ default: module.ResetPasswordPage })));
 const PortalPage = lazy(() => import('./pages/portal/PortalPage').then(module => ({ default: module.PortalPage })));
 const LibraryPage = lazy(() => import('./pages/library/LibraryPage').then(module => ({ default: module.LibraryPage })));
 const UploadPage = lazy(() => import('./pages/upload/UploadPage').then(module => ({ default: module.UploadPage })));
@@ -52,6 +54,10 @@ export default function App() {
             <Route path="/" element={<LandingPage />} />
             <Route path="/login" element={<LoginPage />} />
             <Route path="/register" element={<RegisterPage />} />
+            <Route path="/forgot-password" element={<ForgotPasswordPage />} />
+            {/* Public by design — the recovery link creates a session, but guarding
+                this route would race the redirect against session detection. */}
+            <Route path="/reset-password" element={<ResetPasswordPage />} />
 
             {/* Authed — AuthGuard redirects to /login if no session */}
             <Route path="/portal" element={<AuthGuard><PortalPage /></AuthGuard>} />

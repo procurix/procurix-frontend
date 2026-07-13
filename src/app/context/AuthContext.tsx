@@ -15,6 +15,8 @@ interface AuthContextValue {
   isLoading: boolean;
   signInWithPassword: (email: string, password: string) => Promise<{ error: AuthError | null }>;
   signUpWithPassword: (email: string, password: string) => Promise<{ error: AuthError | null }>;
+  sendPasswordReset: (email: string) => Promise<{ error: AuthError | null }>;
+  updatePassword: (password: string) => Promise<{ error: AuthError | null }>;
   signOut: () => Promise<void>;
 }
 
@@ -53,6 +55,23 @@ export function AuthProvider({ children }: { children: ReactNode }) {
     },
     signUpWithPassword: async (email, password) => {
       const { error } = await supabase.auth.signUp({ email, password });
+      return { error };
+    },
+    // Passing redirectTo explicitly means the recovery link lands on our reset
+    // page rather than falling back to the project's Site URL. The origin is
+    // read at click-time so localhost and the deployed host each get the right
+    // link without a build-time env var. The URL must still be listed under
+    // Supabase → Authentication → Redirect URLs or it is silently ignored.
+    sendPasswordReset: async (email) => {
+      const { error } = await supabase.auth.resetPasswordForEmail(email, {
+        redirectTo: `${window.location.origin}/reset-password`,
+      });
+      return { error };
+    },
+    // Acts on the recovery session that detectSessionInUrl establishes when the
+    // user arrives from the email link.
+    updatePassword: async (password) => {
+      const { error } = await supabase.auth.updateUser({ password });
       return { error };
     },
     signOut: async () => { await supabase.auth.signOut(); },

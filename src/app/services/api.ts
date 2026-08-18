@@ -8,3 +8,4 @@ export * from './api/requirements';
 export * from './api/subsystems';
 export * from './api/impact';
 export * from './api/chat';
+export * from './api/technicalGraph';

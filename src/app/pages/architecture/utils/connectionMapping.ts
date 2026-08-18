@@ -1,5 +1,6 @@
 import type { Component } from '@/app/types';
 import type { ArchitectureProposalRecord, Connection, ConnectionInferenceSource } from '@/app/services/api';
+import type { TgaConnectionProposal, TgaPinMappingProposal } from '@/app/pages/design/utils/technicalGraphMappers';
 
 export type ArchitectureConnectionType =
   | 'power'
@@ -60,6 +61,10 @@ export interface ArchitectureConnectionData {
   isVirtualNetSegment?: boolean;
   componentFrom?: string;
   componentTo?: string;
+  /** True for ephemeral TGA delta overlay edges — not persisted to the architecture DB. */
+  isOverlay?: boolean;
+  /** True when this overlay edge belongs to the segment currently under review (amber). False = previous segment (black). */
+  isCurrentDelta?: boolean;
 }
 
 export interface ArchitectureUnresolvedConnectionCandidate {
@@ -204,6 +209,38 @@ export function mapUnresolvedProposalConnections(
         missing,
       };
     });
+}
+
+/**
+ * Convert TGA ConnectionProposal + PinMappingProposal arrays into
+ * ArchitectureConnectionData[] for overlay rendering on the React Flow canvas.
+ * Overlay edges are ephemeral — they are never persisted to the architecture DB.
+ */
+export function mapTgaConnections(
+  connections: TgaConnectionProposal[],
+  pinMappings: TgaPinMappingProposal[],
+): ArchitectureConnectionData[] {
+  return connections.map((conn) => {
+    const sourcePm = pinMappings.find(
+      (pm) => pm.connection_id === conn.id && pm.part_id === conn.source_part_id,
+    );
+    const targetPm = pinMappings.find(
+      (pm) => pm.connection_id === conn.id && pm.part_id === conn.target_part_id,
+    );
+    return {
+      id: conn.id,
+      from: conn.source_part_id,
+      to: conn.target_part_id,
+      net_id: conn.net_id || undefined,
+      type: normalizeConnectionType(conn.connection_type),
+      connection_type: conn.connection_type || undefined,
+      signal_name: conn.signal_name || undefined,
+      from_pin: sourcePm?.pin_name || undefined,
+      to_pin: targetPm?.pin_name || undefined,
+      edgeType: 'smoothstep',
+      isOverlay: true,
+    };
+  });
 }
 
 export function buildSaveConnectionPayload(connections: ArchitectureConnectionData[]): Connection[] {

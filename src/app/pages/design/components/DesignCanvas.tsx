@@ -1,71 +1,81 @@
-import { Box, Eye, EyeOff, Loader2, Network, RefreshCw, Pause, Play } from 'lucide-react';
+import { useEffect, useMemo, useRef, useState } from 'react';
+import { Box, Eye, EyeOff, Loader2, Network, RefreshCw } from 'lucide-react';
 import { ArchitecturePage } from '@/app/pages/architecture/ArchitecturePage';
 import { useDesignContext } from '../state/DesignContext';
 import { ContinueToReview } from './ContinueToReview';
 import { DisabledReasonHint } from './DisabledReasonHint';
+import { TechnicalGraphActionBar } from './TechnicalGraphActionBar';
+import { partLabelsFromDelta, proposedDeltaConnections } from '../utils/technicalGraphMappers';
+import { mapTgaConnections } from '@/app/pages/architecture/utils/connectionMapping';
 
-// The Design page embeds the existing ArchitecturePage in readOnly mode so
-// we reuse all its data wiring (BOM, classification, nets, proposals,
-// completion readiness, pinouts) without duplicating it. Our markStale
-// pipeline dispatches a 'design:updated' event after analyzeConnections so
-// the embedded page refetches. Subsystem overlay state lives in the design
-// context and is passed down via a controlled prop.
+// Design embeds ArchitecturePage in readOnly mode for BOM/pinout display only.
+// Connection analysis and subsystem generate are not triggered from this page.
+
+const OVERLAY_VIEWS = new Set(['circuit_segment_review', 'graph_segment_context_viewer']);
 
 export function DesignCanvas() {
   const {
-    architecture,
-    architectureReadiness,
-    autoRerun,
-    setAutoRerun,
     sessionId,
-    subsystems,
+    displaySubsystems,
+    technicalGraph,
     showSubsystemOverlay,
     setShowSubsystemOverlay,
     requirementsData,
   } = useDesignContext();
-  const { isRecomputing, regenerate } = architecture;
-  // Hide Generate Subsystems entirely until the architecture has at least
-  // one active connection. Before that, there is nothing to cluster — the
-  // disabled-state was confusing, so we just don't show the button.
-  const hasConnections = (architectureReadiness.readiness?.counts?.active_connections ?? 0) > 0;
-  // Architecture can't be generated until requirements exist. While the
-  // requirements pipeline is still spinning (generating, or simply not
-  // present yet), show an overlay instead of letting the embedded
-  // ArchitecturePage repeatedly 409.
   const waitingForRequirements =
     requirementsData.isGenerating || requirementsData.requirements.length === 0;
+  const hasDisplaySubsystems = displaySubsystems.length > 0;
+
+  // Accumulate overlay connections across all segments so previously-built
+  // segments stay visible as the workflow advances to new ones.
+  // Keyed by connection ID to avoid duplicates. Reset when the run changes.
+  const [accumulatedConnections, setAccumulatedConnections] = useState<
+    Map<string, ReturnType<typeof mapTgaConnections>[number]>
+  >(new Map());
+  const [accumulatedPartLabels, setAccumulatedPartLabels] = useState<Record<string, string>>({});
+  const lastRunIdRef = useRef<string | null>(null);
+
+  useEffect(() => {
+    // Reset when a new run starts.
+    if (technicalGraph.runId !== lastRunIdRef.current) {
+      lastRunIdRef.current = technicalGraph.runId;
+      setAccumulatedConnections(new Map());
+      setAccumulatedPartLabels({});
+    }
+
+    if (!technicalGraph.view || !OVERLAY_VIEWS.has(technicalGraph.view)) return;
+
+    const { connections, pinMappings } = proposedDeltaConnections(technicalGraph.data);
+    const incoming = mapTgaConnections(connections, pinMappings);
+    const incomingLabels = partLabelsFromDelta(technicalGraph.data);
+
+    if (incoming.length === 0) return;
+
+    const incomingIds = new Set(incoming.map((c) => c.id));
+    setAccumulatedConnections((prev) => {
+      const next = new Map<string, ReturnType<typeof mapTgaConnections>[number]>();
+      // Mark all previous connections as no longer current.
+      for (const [id, conn] of prev) next.set(id, { ...conn, isCurrentDelta: false });
+      // Add / overwrite with the incoming connections marked as current.
+      for (const conn of incoming) next.set(conn.id, { ...conn, isCurrentDelta: true });
+      return next;
+    });
+    setAccumulatedPartLabels((prev) => ({ ...prev, ...incomingLabels }));
+  }, [technicalGraph.runId, technicalGraph.view, technicalGraph.data]);
+
+  const overlayConnections = useMemo(
+    () => Array.from(accumulatedConnections.values()),
+    [accumulatedConnections],
+  );
+  const overlayPartLabels = accumulatedPartLabels;
 
   return (
     <div className="flex h-full flex-col">
       <header className="shrink-0 flex items-center gap-2 border-b border-slate-200 bg-white px-4 py-2">
         <Network className="h-4 w-4 text-slate-500" />
-        <h2 className="text-sm font-semibold text-slate-800">Architecture</h2>
-        {isRecomputing && (
-          <span className="flex items-center gap-1 text-xs text-blue-600">
-            <Loader2 className="h-3 w-3 animate-spin" /> Analyzing connections…
-          </span>
-        )}
+        <h2 className="text-sm font-semibold text-slate-800">Technical graph</h2>
         <div className="ml-auto flex items-center gap-2">
-          <button
-            type="button"
-            onClick={() => setAutoRerun(!autoRerun)}
-            className="flex items-center gap-1 rounded border border-slate-200 px-2 py-1 text-xs text-slate-700 hover:bg-slate-50"
-            title={autoRerun ? 'Pause auto-rerun on spec statement edits' : 'Resume auto-rerun on spec statement edits'}
-          >
-            {autoRerun ? <Pause className="h-3 w-3" /> : <Play className="h-3 w-3" />}
-            {autoRerun ? 'Auto' : 'Paused'}
-          </button>
-          <button
-            type="button"
-            onClick={() => void regenerate()}
-            disabled={isRecomputing}
-            className="flex items-center gap-1 rounded border border-slate-200 px-2 py-1 text-xs text-slate-700 hover:bg-slate-50 disabled:opacity-50"
-          >
-            <RefreshCw className={`h-3 w-3 ${isRecomputing ? 'animate-spin' : ''}`} />
-            Regenerate
-          </button>
-          <span className="mx-1 h-4 w-px bg-slate-200" />
-          {subsystems.subsystems.length > 0 && (
+          {hasDisplaySubsystems && (
             <button
               type="button"
               onClick={() => setShowSubsystemOverlay(!showSubsystemOverlay)}
@@ -80,13 +90,33 @@ export function DesignCanvas() {
               Overlay
             </button>
           )}
-          {subsystems.subsystems.length === 0 && hasConnections && <GenerateSubsystemsButton />}
+          {!technicalGraph.hasRun && <BuildTechnicalGraphButton />}
+          {technicalGraph.hasRun && (
+            <button
+              type="button"
+              onClick={() => void technicalGraph.start()}
+              disabled={technicalGraph.busy}
+              className="flex items-center gap-1 rounded border border-slate-200 px-2 py-1 text-xs text-slate-700 hover:bg-slate-50 disabled:opacity-50"
+              title="Restart technical graph run for this design"
+            >
+              {technicalGraph.busy ? <Loader2 className="h-3 w-3 animate-spin" /> : <RefreshCw className="h-3 w-3" />}
+              Restart graph
+            </button>
+          )}
         </div>
       </header>
-      {subsystems.subsystems.length > 0 && <SubsystemStrip />}
+      {technicalGraph.hasRun && <TechnicalGraphActionBar />}
+      {hasDisplaySubsystems && <SubsystemStrip />}
       <div className="relative flex-1 min-h-0">
         {sessionId ? (
-          <ArchitecturePage readOnly showSubsystemOverlay={showSubsystemOverlay} hideCompleteButton />
+          <ArchitecturePage
+            readOnly
+            showSubsystemOverlay={showSubsystemOverlay}
+            hideCompleteButton
+            externalSubsystems={technicalGraph.subsystemSummaries}
+            overlayConnections={overlayConnections}
+            overlayPartLabels={overlayPartLabels}
+          />
         ) : null}
         {waitingForRequirements && <ArchitecturePendingOverlay />}
         <ContinueToReview />
@@ -95,47 +125,32 @@ export function DesignCanvas() {
   );
 }
 
-function GenerateSubsystemsButton() {
-  const { subsystems, architectureReadiness } = useDesignContext();
-  const { readiness } = architectureReadiness;
+function BuildTechnicalGraphButton() {
+  const { technicalGraph, requirementsData } = useDesignContext();
 
-  // Single rule: subsystem generation is gated on architecture readiness
-  // reporting can_complete. Until the user has resolved every architecture
-  // blocker (suggested nets, pinless connections, etc.), this stays
-  // disabled. The hint lists the blocker count so the user knows where to
-  // look (review queue on the canvas).
   const reasons: string[] = [];
-  if (!readiness) {
-    reasons.push('Loading architecture readiness…');
-  } else if (!readiness.can_complete) {
-    const blockerCount = readiness.blockers?.length ?? 0;
-    reasons.push(
-      blockerCount > 0
-        ? `Complete the architecture first — ${blockerCount} blocker${blockerCount === 1 ? '' : 's'} remaining in the review queue.`
-        : 'Complete the architecture first.',
-    );
+  if (requirementsData.isGenerating) {
+    reasons.push('Wait for spec statements to finish generating.');
+  } else if (requirementsData.requirements.length === 0) {
+    reasons.push('Generate spec statements first. Technical graph needs parts + requirements.');
   }
 
-  const disabled = subsystems.isGenerating || reasons.length > 0;
-  const label = subsystems.isGenerating
-    ? 'Generating…'
-    : subsystems.subsystems.length > 0
-    ? 'Regenerate Subsystems'
-    : 'Generate Subsystems';
+  const disabled = technicalGraph.busy || reasons.length > 0;
+  const label = technicalGraph.busy ? 'Starting…' : 'Build technical graph';
 
   return (
     <div className="relative">
       <button
         type="button"
-        onClick={() => void subsystems.generate()}
+        onClick={() => void technicalGraph.start()}
         disabled={disabled}
         className="flex items-center gap-1 rounded border border-slate-200 bg-slate-900 px-2 py-1 text-xs text-white hover:bg-slate-800 disabled:opacity-50"
-        title={reasons.length > 0 ? reasons.join(' ') : 'Generate subsystems from the architecture'}
+        title={reasons.length > 0 ? reasons.join(' ') : 'Start technical graph from parts and requirements'}
       >
         <Box className="h-3 w-3" />
         {label}
       </button>
-      {disabled && reasons.length > 0 && !subsystems.isGenerating && (
+      {disabled && reasons.length > 0 && !technicalGraph.busy && (
         <div className="absolute right-0 top-full z-30 mt-1 w-[280px]">
           <DisabledReasonHint reasons={reasons} />
         </div>
@@ -148,12 +163,10 @@ function ArchitecturePendingOverlay() {
   const { requirementsData } = useDesignContext();
   const isGenerating = requirementsData.isGenerating;
 
-  const headline = isGenerating
-    ? 'Architecture design in progress…'
-    : 'Architecture design in progress…';
+  const headline = 'Waiting for spec statements…';
   const subline = isGenerating
-    ? 'Generating spec statements first — the architecture will appear as soon as they are ready.'
-    : 'Waiting for spec statements before the architecture can be generated.';
+    ? 'Generating spec statements — then you can build the technical graph.'
+    : 'Generate spec statements before building the technical graph.';
 
   return (
     <div className="pointer-events-none absolute inset-0 z-20 flex items-center justify-center bg-white/85 backdrop-blur-sm">
@@ -167,7 +180,11 @@ function ArchitecturePendingOverlay() {
 }
 
 function SubsystemStrip() {
-  const { subsystems, setPanelOpenSubsystemId, panelOpenSubsystemId } = useDesignContext();
+  const {
+    displaySubsystems,
+    setPanelOpenSubsystemId,
+    panelOpenSubsystemId,
+  } = useDesignContext();
 
   return (
     <div className="shrink-0 border-b border-slate-200 bg-slate-50 px-3 py-2">
@@ -175,32 +192,8 @@ function SubsystemStrip() {
         <span className="shrink-0 text-[11px] uppercase tracking-wide text-slate-500">
           Subsystems
         </span>
-        {subsystems.isStale && (
-          <div className="shrink-0 flex items-center gap-1.5">
-            <span
-              className="rounded bg-amber-50 px-1.5 py-0.5 text-[10px] text-amber-700"
-              title="The architecture was re-analyzed after these subsystems were generated. Their groupings may not match the current architecture."
-            >
-              may be stale
-            </span>
-            <button
-              type="button"
-              onClick={() => void subsystems.generate()}
-              disabled={subsystems.isGenerating}
-              className="flex items-center gap-1 rounded border border-amber-300 bg-white px-1.5 py-0.5 text-[10px] font-medium text-amber-800 hover:bg-amber-100 disabled:opacity-60"
-              title="Re-cluster subsystems from the current architecture. Existing subsystems are replaced."
-            >
-              {subsystems.isGenerating ? (
-                <Loader2 className="h-2.5 w-2.5 animate-spin" />
-              ) : (
-                <RefreshCw className="h-2.5 w-2.5" />
-              )}
-              {subsystems.isGenerating ? 'Regenerating…' : 'Regenerate'}
-            </button>
-          </div>
-        )}
         <ul className="flex items-center gap-1.5">
-          {subsystems.subsystems.map(sub => {
+          {displaySubsystems.map(sub => {
             const id = sub.subsystem_id || sub.id;
             const active = panelOpenSubsystemId === id;
             return (

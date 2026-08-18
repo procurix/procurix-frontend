@@ -108,9 +108,22 @@ interface ArchitecturePageProps {
    *  is hidden. The consolidated Design page sets this because its Generate
    *  Subsystems action implicitly confirms the architecture. */
   hideCompleteButton?: boolean;
+  /** Prefer these subsystems for canvas overlay (e.g. technical-graph plan). */
+  externalSubsystems?: SubsystemSummary[];
+  /** Ephemeral TGA delta connections to draw as dashed overlay edges. Never persisted. */
+  overlayConnections?: ArchitectureConnectionData[];
+  /** Maps design-part UUID → MPN so ghost blocks show readable names. */
+  overlayPartLabels?: Record<string, string>;
 }
 
-export function ArchitecturePage({ readOnly = false, showSubsystemOverlay: showSubsystemOverlayProp, hideCompleteButton = false }: ArchitecturePageProps = {}) {
+export function ArchitecturePage({
+  readOnly = false,
+  showSubsystemOverlay: showSubsystemOverlayProp,
+  hideCompleteButton = false,
+  externalSubsystems,
+  overlayConnections,
+  overlayPartLabels,
+}: ArchitecturePageProps = {}) {
   const { sessionId: contextSessionId, setSessionId, setCurrentStage, refreshTrigger } = useSession();
   const { sessionId: querySessionId, updateParams } = useQueryParams();
   const { activeSessionId, navigateToStage } = useWorkflowNavigation();
@@ -292,29 +305,33 @@ export function ArchitecturePage({ readOnly = false, showSubsystemOverlay: showS
           subsystemWarning?: boolean;
         }> = {};
         try {
-          const subsystemResponse = await getSubsystems(activeSessionId);
-          overlay = subsystemAnnotations(subsystemResponse.subsystems || []);
-          try {
-            const subsystemReadiness = await getSubsystemReadiness(activeSessionId);
-            for (const blocker of subsystemReadiness.blockers || []) {
-              if (blocker.type !== 'unassigned_important_part') continue;
-              const warningKeys = [
-                blocker.id,
-                blocker.payload?.design_part_id,
-                blocker.payload?.mpn,
-              ].filter((value): value is string => typeof value === 'string' && Boolean(value));
-              for (const key of warningKeys) {
-                overlay[key] = {
-                  subsystemId: '',
-                  subsystemName: 'Unassigned',
-                  subsystemKey: 'Unassigned',
-                  subsystemColor: '#f59e0b',
-                  subsystemWarning: true,
-                };
+          if (externalSubsystems !== undefined) {
+            overlay = subsystemAnnotations(externalSubsystems);
+          } else {
+            const subsystemResponse = await getSubsystems(activeSessionId);
+            overlay = subsystemAnnotations(subsystemResponse.subsystems || []);
+            try {
+              const subsystemReadiness = await getSubsystemReadiness(activeSessionId);
+              for (const blocker of subsystemReadiness.blockers || []) {
+                if (blocker.type !== 'unassigned_important_part') continue;
+                const warningKeys = [
+                  blocker.id,
+                  blocker.payload?.design_part_id,
+                  blocker.payload?.mpn,
+                ].filter((value): value is string => typeof value === 'string' && Boolean(value));
+                for (const key of warningKeys) {
+                  overlay[key] = {
+                    subsystemId: '',
+                    subsystemName: 'Unassigned',
+                    subsystemKey: 'Unassigned',
+                    subsystemColor: '#f59e0b',
+                    subsystemWarning: true,
+                  };
+                }
               }
+            } catch {
+              // Subsystem readiness is only available after subsystem architecture exists.
             }
-          } catch {
-            // Subsystem readiness is only available after subsystem architecture exists.
           }
         } catch {
           overlay = {};
@@ -364,7 +381,7 @@ export function ArchitecturePage({ readOnly = false, showSubsystemOverlay: showS
 
     fetchConnections();
     return () => { isCurrent = false; };
-  }, [activeSessionId, querySessionId, updateParams, refreshTrigger, readOnly]);
+  }, [activeSessionId, querySessionId, updateParams, refreshTrigger, readOnly, externalSubsystems]);
 
   const refreshNets = useCallback(async (): Promise<ArchitectureNet[]> => {
     if (!activeSessionId) return [];
@@ -502,6 +519,8 @@ export function ArchitecturePage({ readOnly = false, showSubsystemOverlay: showS
         onRefreshNets={refreshNets}
         onRefreshCompletionReadiness={refreshCompletionReadiness}
         hideCompleteButton={hideCompleteButton}
+        overlayConnections={overlayConnections}
+        overlayPartLabels={overlayPartLabels}
       />
       {!overlayIsControlledByParent && showSubsystemOverlay && Object.keys(subsystemOverlay).length === 0 && (
         <div className="absolute left-4 top-16 z-20 rounded-md border border-amber-200 bg-amber-50 px-3 py-2 text-xs text-amber-800 shadow-sm">

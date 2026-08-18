@@ -126,6 +126,10 @@ interface SystemArchitectureViewProps {
    *  Used by the consolidated Design page where Generate Subsystems implicitly
    *  confirms the architecture. */
   hideCompleteButton?: boolean;
+  /** Ephemeral TGA delta connections drawn as dashed amber overlay edges. Not persisted. */
+  overlayConnections?: ConnectionData[];
+  /** Maps design-part UUID → MPN label so ghost blocks show readable part names. */
+  overlayPartLabels?: Record<string, string>;
 }
 
 interface NetLinkDraft {
@@ -406,7 +410,7 @@ function splitComponentAndNetBlocks(
 }
 
 // Inner component that uses useReactFlow hook
-function SystemArchitectureViewInner({ components, onArchitectureComplete, backendResponse, initialConnections, initialUnresolvedConnections, initialNets, completionReadiness, classificationMap, designId, layoutScopeId, onRefreshNets, onRefreshCompletionReadiness, hideCompleteButton }: SystemArchitectureViewProps) {
+function SystemArchitectureViewInner({ components, onArchitectureComplete, backendResponse, initialConnections, initialUnresolvedConnections, initialNets, completionReadiness, classificationMap, designId, layoutScopeId, onRefreshNets, onRefreshCompletionReadiness, hideCompleteButton, overlayConnections, overlayPartLabels }: SystemArchitectureViewProps) {
   const { fitView, screenToFlowPosition, zoomIn, zoomOut } = useReactFlow();
 
   // External camera-zoom trigger used by the consolidated Design page. Opening
@@ -627,9 +631,9 @@ function SystemArchitectureViewInner({ components, onArchitectureComplete, backe
     return saved ? JSON.parse(saved) : {};
   });
 
-  const activePinsByBlock = useMemo(() => {
-    return buildActivePinsByBlock(connections);
-  }, [connections]);
+  // Base active-pins map built from persisted connections only.
+  // Extended below (after renderBlocks is available) to include overlay pins.
+  const basePinsByBlock = useMemo(() => buildActivePinsByBlock(connections), [connections]);
 
   const netModel = useMemo(
     () => buildArchitectureNetModel(blocks, connections, hiddenNetKeys, persistedNets),
@@ -649,6 +653,125 @@ function SystemArchitectureViewInner({ components, onArchitectureComplete, backe
   const renderBlocks = useMemo(
     () => [...blocks, ...positionedVirtualNetBlocks],
     [blocks, positionedVirtualNetBlocks]
+  );
+
+  // Extend the base active-pins map with overlay connection pins so that
+  // real blocks (e.g. a MOSFET already on the canvas) render handles for
+  // pins that only appear in TGA-proposed overlay edges. Without this the
+  // edge has no registered handle to anchor to and floats into empty space.
+  const activePinsByBlock = useMemo(() => {
+    if (!overlayConnections?.length) return basePinsByBlock;
+    const extended = new Map(basePinsByBlock);
+
+    // Add pins explicitly named in overlay connections.
+    const overlayPins = buildActivePinsByBlock(overlayConnections);
+    for (const [blockId, pins] of overlayPins) {
+      const existing = extended.get(blockId);
+      if (existing) {
+        for (const pin of pins) existing.add(pin);
+      } else {
+        extended.set(blockId, new Set(pins));
+      }
+    }
+
+    // For overlay endpoints where no specific pin was named (from_pin /
+    // to_pin is undefined), the edge renderer falls back to the block's first
+    // pinout key. Ensure that key's pin name is active so ComponentNode
+    // registers the handle — otherwise the edge floats into empty space.
+    const realIds = new Set(renderBlocks.map((b) => b.id));
+    for (const conn of overlayConnections) {
+      for (const [partId, pinField] of [
+        [conn.from, conn.source_pin || conn.from_pin],
+        [conn.to, conn.target_pin || conn.to_pin],
+      ] as [string, string | undefined][]) {
+        if (!pinField && realIds.has(partId)) {
+          const block = renderBlocks.find((b) => b.id === partId);
+          const firstKey = block ? Object.keys(block.pinout || {})[0] : undefined;
+          const firstPinData = block && firstKey ? block.pinout[firstKey] : undefined;
+          const activeName = firstPinData?.name || firstKey;
+          if (activeName) {
+            const existing = extended.get(partId);
+            if (existing) {
+              existing.add(activeName);
+            } else {
+              extended.set(partId, new Set([activeName]));
+            }
+          }
+        }
+      }
+    }
+    return extended;
+  }, [basePinsByBlock, overlayConnections, renderBlocks]);
+
+  // Ghost ComponentBlocks for overlay parts not yet present in the diagram.
+  // These let React Flow anchor overlay edges even when the architecture canvas
+  // is empty (e.g. fresh TGA build that hasn't gone through architecture yet).
+  const ghostBlocks = useMemo((): ComponentBlock[] => {
+    if (!overlayConnections || overlayConnections.length === 0) return [];
+    const existingIds = new Set(renderBlocks.map((b) => b.id));
+    const missingIds = new Set<string>();
+    for (const conn of overlayConnections) {
+      if (!existingIds.has(conn.from)) missingIds.add(conn.from);
+      if (!existingIds.has(conn.to)) missingIds.add(conn.to);
+    }
+    if (missingIds.size === 0) return [];
+
+    // Ghost blocks need at least one pinout entry so ComponentNode registers a
+    // handle. Without any handle React Flow can't anchor edges to the node.
+    const ghostPinout = { '1': { name: 'conn', type: 'BIDIRECTIONAL', description: '' } };
+
+    // Place ghost blocks in a grid above the topmost existing block so they
+    // never overlap existing nodes. Use SYMBOL_WIDTH + gap for column spacing.
+    const GHOST_W = 420;  // slightly wider than SYMBOL_WIDTH (390) to include handle space
+    const GHOST_H = 240;  // approximate collapsed ComponentNode height
+    const GAP = 120;
+    const cols = Math.max(1, Math.ceil(Math.sqrt(missingIds.size)));
+    const minExistingY = renderBlocks.length > 0
+      ? Math.min(...renderBlocks.map((b) => b.y ?? 0))
+      : 0;
+
+    // Count how many times each MPN appears so duplicate instances get a
+    // numbered suffix (e.g. "CRCW0402100RFKED [1]", "CRCW0402100RFKED [2]").
+    const mpnCount = new Map<string, number>();
+    const mpnSeen = new Map<string, number>();
+    for (const partId of Array.from(missingIds)) {
+      const mpn = overlayPartLabels?.[partId] ?? partId;
+      mpnCount.set(mpn, (mpnCount.get(mpn) ?? 0) + 1);
+    }
+
+    return Array.from(missingIds).map((partId, index) => {
+      const col = index % cols;
+      const row = Math.floor(index / cols);
+      const baseMpn = overlayPartLabels?.[partId] ?? partId;
+      const count = mpnCount.get(baseMpn) ?? 1;
+      let label = baseMpn;
+      if (count > 1) {
+        const seen = (mpnSeen.get(baseMpn) ?? 0) + 1;
+        mpnSeen.set(baseMpn, seen);
+        label = `${baseMpn} [${seen}]`;
+      }
+      return {
+        id: partId,
+        reference: label,
+        partNumber: baseMpn,
+        type: 'component',
+        description: label,
+        specs: {},
+        pinout: ghostPinout,
+        isIdentified: false,
+        isGeneric: true,
+        complianceStatus: 'compliant' as const,
+        x: col * (GHOST_W + GAP),
+        y: minExistingY - GAP - (row + 1) * (GHOST_H + GAP),
+        connections: [],
+      };
+    });
+  }, [overlayConnections, overlayPartLabels, renderBlocks]);
+
+  // Extended block list used ONLY for overlay-edge source/target lookup.
+  const allRenderBlocks = useMemo(
+    () => (ghostBlocks.length > 0 ? [...renderBlocks, ...ghostBlocks] : renderBlocks),
+    [renderBlocks, ghostBlocks],
   );
 
   const selectedNetBlock = useMemo(
@@ -879,19 +1002,135 @@ function SystemArchitectureViewInner({ components, onArchitectureComplete, backe
     });
   }, [blockerConnectionIds, renderConnections, renderBlocks, hoveredEdgeId, selectedEdgeId, routePlans]);
 
+  // Build ephemeral overlay edges for TGA proposed delta connections.
+  // Uses allRenderBlocks (includes ghost blocks) so edges render even when
+  // the architecture canvas has no saved connections yet.
+  const overlayEdges = useMemo((): Edge[] => {
+    if (!overlayConnections || overlayConnections.length === 0) return [];
+
+    // ConnectionMode.Strict requires explicit handle IDs. Try to resolve the
+    // specific pin; fall back to the first pin in the block's pinout (always
+    // present for ghost blocks which have a single dummy pin).
+    const resolveHandleWithFallback = (block: ComponentBlock, pinName?: string): string | undefined => {
+      const resolved = resolvePinHandleId(block, pinName);
+      if (resolved) return resolved;
+      const firstPin = Object.keys(block.pinout || {})[0];
+      return firstPin ? `${block.id}-pin-${firstPin}` : undefined;
+    };
+
+    return overlayConnections.flatMap((conn) => {
+      const sourceBlock = allRenderBlocks.find((b) => b.id === conn.from);
+      const targetBlock = allRenderBlocks.find((b) => b.id === conn.to);
+      if (!sourceBlock || !targetBlock) {
+        console.warn('[overlay] missing block for', conn.id, '— from:', conn.from, 'found:', !!sourceBlock, '| to:', conn.to, 'found:', !!targetBlock);
+        return [];
+      }
+
+      const sourceHandle = resolveHandleWithFallback(sourceBlock, conn.from_pin || conn.source_pin);
+      const targetHandle = resolveHandleWithFallback(targetBlock, conn.to_pin || conn.target_pin);
+      if (!sourceHandle || !targetHandle) {
+        console.warn('[overlay] no handle for', conn.id, '— sourceHandle:', sourceHandle, 'targetHandle:', targetHandle, '| sourcePinout keys:', Object.keys(sourceBlock.pinout || {}), 'targetPinout keys:', Object.keys(targetBlock.pinout || {}));
+        return [];
+      }
+
+      const isCurrent = conn.isCurrentDelta !== false; // default true for backwards compat
+      const labelParts: string[] = [];
+      if (conn.connection_type) labelParts.push(`[${conn.connection_type}]`);
+      if (conn.signal_name) labelParts.push(conn.signal_name);
+      return [{
+        id: `overlay-${conn.id}`,
+        source: conn.from,
+        target: conn.to,
+        sourceHandle,
+        targetHandle,
+        type: 'smoothstep',
+        animated: false,
+        style: isCurrent
+          ? { stroke: '#f59e0b', strokeWidth: 2, strokeDasharray: '6 4' }
+          : { stroke: '#1e293b', strokeWidth: 1.5, strokeDasharray: '4 3', opacity: 0.6 },
+        zIndex: isCurrent ? 10 : 5,
+        label: labelParts.join(' ') || undefined,
+        labelStyle: isCurrent
+          ? { fill: '#92400e', fontWeight: 600, fontSize: 10 }
+          : { fill: '#475569', fontWeight: 500, fontSize: 10 },
+        labelBgStyle: isCurrent
+          ? { fill: '#fffbeb', fillOpacity: 0.95 }
+          : { fill: '#f8fafc', fillOpacity: 0.9 },
+        data: { isOverlay: true },
+      } as Edge];
+    });
+  }, [overlayConnections, allRenderBlocks]);
+
   const [nodes, setNodes, onNodesChange] = useNodesState(initialNodes);
   const [edges, setEdges, onEdgesChange] = useEdgesState(initialEdges);
 
+  // Track which node IDs are ghost nodes so they can be cleaned up.
+  const ghostNodeIdsRef = useRef(new Set<string>());
+
+  // Inject / remove ghost nodes when overlay connections change.
+  useEffect(() => {
+    const nextGhostIds = new Set(ghostBlocks.map((b) => b.id));
+    const prevGhostIds = ghostNodeIdsRef.current;
+    const toRemove = [...prevGhostIds].filter((id) => !nextGhostIds.has(id));
+    ghostNodeIdsRef.current = nextGhostIds;
+    if (nextGhostIds.size === 0 && toRemove.length === 0) return;
+
+    // Build a position+data map for all current ghost blocks so we can
+    // update positions when the grid recomputes (e.g. when a new segment
+    // adds more blocks and changes col/row assignments).
+    const ghostMap = new Map(ghostBlocks.map((b) => [b.id, b]));
+
+    let changed = false;
+    setNodes((prev) => {
+      const filtered = toRemove.length > 0 ? prev.filter((n) => !toRemove.includes(n.id)) : prev;
+
+      // Update positions for ghost nodes that already exist.
+      const updated = filtered.map((n) => {
+        const ghost = ghostMap.get(n.id);
+        if (!ghost) return n;
+        const newPos = { x: ghost.x, y: ghost.y };
+        if (n.position.x === newPos.x && n.position.y === newPos.y) return n;
+        changed = true;
+        return { ...n, position: newPos };
+      });
+
+      // Add ghost nodes that are not yet in the list.
+      const existingIds = new Set(updated.map((n) => n.id));
+      const toAdd: Node[] = ghostBlocks
+        .filter((b) => !existingIds.has(b.id))
+        .map((b) => ({
+          id: b.id,
+          type: 'component',
+          position: { x: b.x, y: b.y },
+          // 'conn' matches the ghost pinout pin name so ComponentNode treats
+          // it as an active pin and renders a handle React Flow can anchor to.
+          data: { ...b, activePinNames: ['conn'], onOpenModel: undefined },
+        }));
+      if (toAdd.length > 0) changed = true;
+      return toAdd.length > 0 || toRemove.length > 0 ? [...updated, ...toAdd] : updated;
+    });
+
+    // Fit the viewport after ghost nodes are mounted and measured so edges
+    // anchor correctly and no connection appears to float into empty space.
+    if (changed || toRemove.length > 0) {
+      setTimeout(() => fitView({ padding: 0.15, duration: 400 }), 150);
+    }
+  }, [ghostBlocks, setNodes, fitView]);
+
   // Filtered views for fundamental/all toggle (must be after nodes/edges are declared)
   const displayEdges = useMemo(() => {
-    if (viewMode === 'all' || !fundamentalIds) return edges;
-    return edges.filter((edge) => {
+    // Overlay edges always shown regardless of fundamental filter.
+    const overlayEdgeSet = new Set(overlayEdges.map((e) => e.id));
+    if (viewMode === 'all' || !fundamentalIds) return [...edges, ...overlayEdges];
+    const filtered = edges.filter((edge) => {
+      if (overlayEdgeSet.has(edge.id)) return true;
       const data = edge.data as { componentFrom?: string; componentTo?: string } | undefined;
       const componentFrom = data?.componentFrom || edge.source;
       const componentTo = data?.componentTo || edge.target;
       return fundamentalIds.has(componentFrom) && fundamentalIds.has(componentTo);
     });
-  }, [edges, viewMode, fundamentalIds]);
+    return [...filtered, ...overlayEdges];
+  }, [edges, overlayEdges, viewMode, fundamentalIds]);
 
   const displayNodes = useMemo(() => {
     if (viewMode === 'all' || !fundamentalIds) return nodes;
@@ -979,10 +1218,15 @@ function SystemArchitectureViewInner({ components, onArchitectureComplete, backe
     setTimeout(() => { fitView({ padding: 0.2, duration: 300 }); }, 50);
   }, [viewMode, fitView]);
 
-  // Update nodes and edges when blocks/connections change
+  // Update nodes and edges when blocks/connections change, preserving ghost nodes.
   useEffect(() => {
     if (isNodeDragActiveRef.current) return;
-    setNodes(initialNodes);
+    setNodes((prev) => {
+      const ghostIds = ghostNodeIdsRef.current;
+      if (ghostIds.size === 0) return initialNodes;
+      const preserved = prev.filter((n) => ghostIds.has(n.id));
+      return preserved.length > 0 ? [...initialNodes, ...preserved] : initialNodes;
+    });
   }, [initialNodes, setNodes]);
 
   useEffect(() => {
@@ -3613,7 +3857,7 @@ function SystemArchitectureViewInner({ components, onArchitectureComplete, backe
 }
 
 // Wrapper component that provides ReactFlow context
-export function SystemArchitectureView({ components, onArchitectureComplete, backendResponse, initialConnections, initialUnresolvedConnections, initialNets, completionReadiness, classificationMap, designId, layoutScopeId, onRefreshNets, onRefreshCompletionReadiness, hideCompleteButton }: SystemArchitectureViewProps) {
+export function SystemArchitectureView({ components, onArchitectureComplete, backendResponse, initialConnections, initialUnresolvedConnections, initialNets, completionReadiness, classificationMap, designId, layoutScopeId, onRefreshNets, onRefreshCompletionReadiness, hideCompleteButton, overlayConnections, overlayPartLabels }: SystemArchitectureViewProps) {
   return (
     <ReactFlowProvider>
       <SystemArchitectureViewInner
@@ -3630,6 +3874,8 @@ export function SystemArchitectureView({ components, onArchitectureComplete, bac
         onRefreshNets={onRefreshNets}
         onRefreshCompletionReadiness={onRefreshCompletionReadiness}
         hideCompleteButton={hideCompleteButton}
+        overlayConnections={overlayConnections}
+        overlayPartLabels={overlayPartLabels}
       />
     </ReactFlowProvider>
   );

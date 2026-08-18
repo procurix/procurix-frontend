@@ -3,29 +3,22 @@ import { useWorkflowNavigation } from '@/app/shared/hooks/useWorkflowNavigation'
 import { useDesignContext } from '../state/DesignContext';
 import { DisabledReasonHint } from './DisabledReasonHint';
 
-// Floating "Continue to Review" button anchored bottom-right of the canvas.
-// Gating order matches the new design flow:
-//   1. At least one approved requirement
-//   2. Subsystems generated (Generate Subsystems also implicitly confirms
-//      the architecture, so connections are guaranteed by this point)
-//   3. At least one subsystem requirement generated (any subsystem)
+// Continue is gated on technical-graph completion, not design_evolution
+// subsystem generate / architecture confirm.
 
 export function ContinueToReview() {
   const { navigateToStage } = useWorkflowNavigation();
-  const { requirementsData, subsystems, subsystemRequirementsCount } = useDesignContext();
+  const { requirementsData, technicalGraph } = useDesignContext();
 
-  const approvedReqs = requirementsData.summary.approved;
-  const hasSubsystems = subsystems.subsystems.length > 0;
-  const hasSubsystemRequirements = subsystemRequirementsCount > 0;
-  const enabled = approvedReqs > 0 && hasSubsystems && hasSubsystemRequirements;
+  const hasRequirements = requirementsData.requirements.length > 0;
+  const enabled = hasRequirements && technicalGraph.isComplete;
 
   const reasons: string[] = [];
-  if (approvedReqs === 0) reasons.push('Approve at least one spec statement.');
-  if (!hasSubsystems) reasons.push('Generate subsystems.');
-  // Note: hasSubsystemRequirements still gates `enabled` below, so the
-  // button stays disabled until at least one subsystem has requirements,
-  // but we intentionally don't surface that reason in the hint (per the
-  // request to hide the 'generate subsystem requirements' info message).
+  if (!hasRequirements) reasons.push('Generate spec statements first.');
+  else if (!technicalGraph.hasRun) reasons.push('Build the technical graph.');
+  else if (!technicalGraph.isComplete) {
+    reasons.push('Finish the technical graph workflow (approve the final graph).');
+  }
 
   return (
     <div className="pointer-events-none absolute bottom-4 right-4 z-30 flex flex-col items-end">

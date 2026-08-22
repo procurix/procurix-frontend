@@ -11,6 +11,7 @@ import {
   buildSaveConnectionPayload,
   mapApiConnections,
   mapUnresolvedProposalConnections,
+  type ArchitecturePartLookup,
   type ArchitectureConnectionData,
   type ArchitectureUnresolvedConnectionCandidate,
 } from './utils/connectionMapping';
@@ -47,6 +48,24 @@ function attachNetIdsToConnections(response: ConnectionsResponse, nets: Architec
   };
 }
 
+function canonicalTechnicalGraphConnections(
+  response: ConnectionsResponse,
+  partLookup?: ArchitecturePartLookup,
+): ConnectionsResponse['connections'] {
+  const connections = response.connections || [];
+  const lookupEntries = Object.entries(partLookup || {});
+  if (lookupEntries.length === 0) return connections;
+
+  const canonicalPartIds = new Set(
+    lookupEntries.map(([partId, row]) => row.design_part_id || partId),
+  );
+
+  return connections.filter((connection) => (
+    canonicalPartIds.has(connection.source_part)
+    && (!connection.target_part || canonicalPartIds.has(connection.target_part))
+  ));
+}
+
 const SUBSYSTEM_COLORS = ['#2563eb', '#059669', '#d97706', '#7c3aed', '#db2777', '#0891b2', '#65a30d', '#dc2626'];
 
 function subsystemAnnotations(subsystems: SubsystemSummary[]): Record<string, {
@@ -66,19 +85,16 @@ function subsystemAnnotations(subsystems: SubsystemSummary[]): Record<string, {
     .forEach((subsystem, index) => {
       const color = SUBSYSTEM_COLORS[index % SUBSYSTEM_COLORS.length];
       for (const part of subsystem.parts || []) {
-        const ids = [
-          part.design_part_id,
-          part.mpn,
-          part.part_number,
-        ].filter((value): value is string => Boolean(value));
-        for (const id of ids) {
-          annotations[id] = {
-            subsystemId: subsystem.subsystem_id || subsystem.id,
-            subsystemName: subsystem.name,
-            subsystemKey: subsystem.subsystem_key || subsystem.original_subsystem_id,
-            subsystemColor: color,
-          };
-        }
+        // Subsystem membership is instance identity. MPN/part_number are display
+        // labels and can repeat across multiple physical/logical instances.
+        const id = part.design_part_id;
+        if (!id) continue;
+        annotations[id] = {
+          subsystemId: subsystem.subsystem_id || subsystem.id,
+          subsystemName: subsystem.name,
+          subsystemKey: subsystem.subsystem_key || subsystem.original_subsystem_id,
+          subsystemColor: color,
+        };
       }
     });
   return annotations;
@@ -114,6 +130,8 @@ interface ArchitecturePageProps {
   overlayConnections?: ArchitectureConnectionData[];
   /** Maps design-part UUID → MPN so ghost blocks show readable names. */
   overlayPartLabels?: Record<string, string>;
+  /** Design-part UUID → display/enrichment metadata from the technical graph run. */
+  technicalGraphPartLookup?: ArchitecturePartLookup;
 }
 
 export function ArchitecturePage({
@@ -123,6 +141,7 @@ export function ArchitecturePage({
   externalSubsystems,
   overlayConnections,
   overlayPartLabels,
+  technicalGraphPartLookup,
 }: ArchitecturePageProps = {}) {
   const { sessionId: contextSessionId, setSessionId, setCurrentStage, refreshTrigger } = useSession();
   const { sessionId: querySessionId, updateParams } = useQueryParams();
@@ -251,7 +270,8 @@ export function ArchitecturePage({
 
         // Fetch all classified parts so isolated (unconnected) parts still appear
         let specsMap: Record<string, Record<string, unknown>> = {};
-        let displayedPartNumbers: string[] = [];
+        let displayedPartIds: string[] = [];
+        let pinoutMpns: string[] = [];
         let pinoutMap: Record<string, Record<string, { name: string; type: string; description: string }>> = {};
         try {
           const [cls, specs] = await Promise.all([
@@ -263,20 +283,42 @@ export function ArchitecturePage({
             const nonNullClassificationMap = Object.fromEntries(
               Object.entries(cls.classification_map || {}).filter((entry): entry is [string, string] => entry[1] !== null),
             );
-            // Pass all classified parts so the All/Fundamental toggle has full data.
-            // SystemArchitectureView defaults to 'fundamental' mode; the toggle
-            // uses classificationMap to decide which nodes to show.
-            displayedPartNumbers = Object.keys(nonNullClassificationMap);
-            setClassificationMap(nonNullClassificationMap);
+            const partLookupEntries = Object.entries(technicalGraphPartLookup || {});
+            if (partLookupEntries.length > 0) {
+              const idClassificationMap: Record<string, string> = {};
+              for (const [partId, row] of partLookupEntries) {
+                const designPartId = row.design_part_id || partId;
+                const mpn = row.mpn || row.part_number || '';
+                const classification =
+                  row.classification ||
+                  (mpn ? nonNullClassificationMap[mpn] : undefined) ||
+                  (row.part_number ? nonNullClassificationMap[row.part_number] : undefined);
+                if (classification) idClassificationMap[designPartId] = classification;
+              }
+              // Technical-graph mode is instance-based: node IDs are design_part_id.
+              displayedPartIds = partLookupEntries.map(([partId, row]) => row.design_part_id || partId);
+              pinoutMpns = Array.from(new Set(
+                partLookupEntries
+                  .map(([, row]) => row.mpn || row.part_number || '')
+                  .filter(Boolean),
+              ));
+              setClassificationMap(idClassificationMap);
+            } else {
+              // Legacy architecture mode is still keyed by MPN/part number because
+              // the older classification endpoint does not expose design_part_id.
+              displayedPartIds = Object.keys(nonNullClassificationMap);
+              pinoutMpns = displayedPartIds;
+              setClassificationMap(nonNullClassificationMap);
+            }
           }
           try {
-            const batchPinouts = await getPartPinouts(activeSessionId, displayedPartNumbers);
+            const batchPinouts = await getPartPinouts(activeSessionId, pinoutMpns);
             pinoutMap = Object.fromEntries(
               Object.entries(batchPinouts.pinouts || {}).map(([mpn, pinout]) => [mpn, toArchitecturePinout(pinout.pins)]),
             );
           } catch {
             const pinoutResults = await Promise.allSettled(
-              displayedPartNumbers.map(async (mpn) => [mpn, await getPartPinout(activeSessionId, mpn)] as const),
+              pinoutMpns.map(async (mpn) => [mpn, await getPartPinout(activeSessionId, mpn)] as const),
             );
             pinoutMap = Object.fromEntries(
               pinoutResults
@@ -337,12 +379,20 @@ export function ArchitecturePage({
           overlay = {};
         }
 
-        const componentsList = buildArchitectureComponents(response.connections, displayedPartNumbers, specsMap, pinoutMap);
+        const architectureConnections = canonicalTechnicalGraphConnections(response, technicalGraphPartLookup);
+
+        const componentsList = buildArchitectureComponents(
+          architectureConnections,
+          displayedPartIds,
+          specsMap,
+          pinoutMap,
+          technicalGraphPartLookup,
+        );
         const annotatedComponents = componentsList.map((component) => {
-          const annotation = overlay[component.id] || (component.partNumber ? overlay[component.partNumber] : undefined);
+          const annotation = overlay[component.id];
           return annotation ? { ...component, ...annotation } : component;
         });
-        const mappedConnections = mapApiConnections(response.connections);
+        const mappedConnections = mapApiConnections(architectureConnections);
         const mappedUnresolvedConnections = pendingProposals;
 
         setComponents(annotatedComponents);
@@ -381,7 +431,7 @@ export function ArchitecturePage({
 
     fetchConnections();
     return () => { isCurrent = false; };
-  }, [activeSessionId, querySessionId, updateParams, refreshTrigger, readOnly, externalSubsystems]);
+  }, [activeSessionId, querySessionId, updateParams, refreshTrigger, readOnly, externalSubsystems, technicalGraphPartLookup]);
 
   const refreshNets = useCallback(async (): Promise<ArchitectureNet[]> => {
     if (!activeSessionId) return [];
@@ -499,7 +549,7 @@ export function ArchitecturePage({
           </button>
         </div>
       )}
-      <SystemArchitectureView
+        <SystemArchitectureView
         components={showSubsystemOverlay ? components : components.map((component) => ({
           ...component,
           subsystemId: undefined,
@@ -519,9 +569,9 @@ export function ArchitecturePage({
         onRefreshNets={refreshNets}
         onRefreshCompletionReadiness={refreshCompletionReadiness}
         hideCompleteButton={hideCompleteButton}
-        overlayConnections={overlayConnections}
-        overlayPartLabels={overlayPartLabels}
-      />
+          overlayConnections={overlayConnections}
+          overlayPartLabels={overlayPartLabels}
+        />
       {!overlayIsControlledByParent && showSubsystemOverlay && Object.keys(subsystemOverlay).length === 0 && (
         <div className="absolute left-4 top-16 z-20 rounded-md border border-amber-200 bg-amber-50 px-3 py-2 text-xs text-amber-800 shadow-sm">
           No subsystem data available yet.

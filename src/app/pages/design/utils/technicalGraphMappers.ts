@@ -1,4 +1,9 @@
-import type { SubsystemSummary } from '@/app/services/api';
+import type {
+  SubsystemPartDetail,
+  SubsystemRequirementItem,
+  SubsystemSummary,
+} from '@/app/services/api';
+import type { ArchitecturePartLookup, ArchitecturePartLookupRow } from '@/app/pages/architecture/utils/connectionMapping';
 
 type UnknownRecord = Record<string, unknown>;
 
@@ -17,11 +22,71 @@ function asStringList(value: unknown): string[] {
   return value.map(asString).filter(Boolean);
 }
 
+function partFromLookup(partId: string, lookup: UnknownRecord | null): SubsystemPartDetail {
+  const row = asRecord(lookup?.[partId]);
+  if (!row) {
+    return {
+      design_part_id: partId,
+      part_number: partId,
+      mpn: null,
+    };
+  }
+  const mpn = asString(row.mpn) || null;
+  const designator = asString(row.designator) || null;
+  return {
+    ...row,
+    design_part_id: asString(row.design_part_id) || partId,
+    part_number: asString(row.part_number) || mpn || designator || partId,
+    mpn,
+    component_id: asString(row.component_id) || undefined,
+    designator,
+    category: asString(row.category) || null,
+    classification: asString(row.classification) || null,
+    description: asString(row.description) || null,
+    manufacturer: asString(row.manufacturer) || null,
+  } as SubsystemPartDetail;
+}
+
+function requirementFromLookup(
+  requirementId: string,
+  subsystemId: string,
+  lookup: UnknownRecord | null,
+): SubsystemRequirementItem {
+  const row = asRecord(lookup?.[requirementId]);
+  if (!row) {
+    return {
+      id: requirementId,
+      req_id: requirementId,
+      subsystem_id: subsystemId,
+      description: '',
+      mapped_components: [],
+    };
+  }
+  return {
+    ...row,
+    id: asString(row.id) || requirementId,
+    req_id: asString(row.req_id) || requirementId,
+    req_key: asString(row.req_key) || null,
+    subsystem_id: asString(row.subsystem_id) || subsystemId,
+    title: asString(row.title) || null,
+    description: asString(row.description),
+    requirement_text: asString(row.requirement_text) || undefined,
+    priority: asString(row.priority) || null,
+    status: asString(row.status) || null,
+    mapped_components: asStringList(row.mapped_components),
+    mapped_part_ids: asStringList(row.mapped_part_ids),
+    source_mpns: asStringList(row.source_mpns),
+  } as SubsystemRequirementItem;
+}
+
 export interface DiscoverySubsystem {
   id: string;
   name: string;
   purpose?: string;
   part_ids: string[];
+  fundamental_part_ids?: string[];
+  supporting_part_ids?: string[];
+  all_part_ids?: string[];
   requirement_ids: string[];
   protocols?: string[];
   rationale?: string[];
@@ -33,7 +98,7 @@ export function discoveryPlanFromData(data: Record<string, unknown> | null | und
   if (!plan) return null;
   const subsystemsRaw = Array.isArray(plan.subsystems) ? plan.subsystems : [];
   const subsystems: DiscoverySubsystem[] = subsystemsRaw
-    .map((row) => {
+    .map((row): DiscoverySubsystem | null => {
       const item = asRecord(row);
       if (!item) return null;
       const id = asString(item.id);
@@ -43,6 +108,9 @@ export function discoveryPlanFromData(data: Record<string, unknown> | null | und
         name: asString(item.name) || id,
         purpose: asString(item.purpose) || undefined,
         part_ids: asStringList(item.part_ids),
+        fundamental_part_ids: asStringList(item.fundamental_part_ids),
+        supporting_part_ids: asStringList(item.supporting_part_ids),
+        all_part_ids: asStringList(item.all_part_ids),
         requirement_ids: asStringList(item.requirement_ids),
         protocols: asStringList(item.protocols),
         rationale: asStringList(item.rationale),
@@ -57,14 +125,46 @@ export function discoveryPlanFromData(data: Record<string, unknown> | null | und
   };
 }
 
+export function partLookupFromData(data: Record<string, unknown> | null | undefined): ArchitecturePartLookup {
+  const raw = asRecord(data?.part_lookup);
+  if (!raw) return {};
+  const rows: ArchitecturePartLookup = {};
+  for (const [key, value] of Object.entries(raw)) {
+    const row = asRecord(value);
+    if (!row) continue;
+    const designPartId = asString(row.design_part_id) || key;
+    if (!designPartId) continue;
+    rows[designPartId] = {
+      ...(row as ArchitecturePartLookupRow),
+      design_part_id: designPartId,
+      part_number: asString(row.part_number) || null,
+      mpn: asString(row.mpn) || null,
+      component_id: asString(row.component_id) || null,
+      designator: asString(row.designator) || null,
+      category: asString(row.category) || null,
+      classification: asString(row.classification) || null,
+      description: asString(row.description) || null,
+      manufacturer: asString(row.manufacturer) || null,
+    };
+  }
+  return rows;
+}
+
 /** Map technical-graph discovery subsystems into Design SubsystemSummary shape. */
 export function subsystemsFromDiscoveryPlan(
   data: Record<string, unknown> | null | undefined,
 ): SubsystemSummary[] {
   const plan = discoveryPlanFromData(data);
   if (!plan) return [];
+  const partLookup = partLookupFromData(data);
+  const requirementLookup = asRecord(data?.requirement_lookup);
   return plan.subsystems.map((sub) => {
-    const partIds = sub.part_ids;
+    const partIds = sub.fundamental_part_ids?.length
+      ? sub.fundamental_part_ids
+      : sub.part_ids;
+    const requirements = sub.requirement_ids.map((requirementId) =>
+      requirementFromLookup(requirementId, sub.id, requirementLookup),
+    );
     return {
       id: sub.id,
       subsystem_id: sub.id,
@@ -79,19 +179,19 @@ export function subsystemsFromDiscoveryPlan(
       warnings: [],
       evidence: {
         part_count: partIds.length,
+        all_part_count: sub.all_part_ids?.length || sub.part_ids.length,
+        supporting_part_count: sub.supporting_part_ids?.length || 0,
         functional_roles: sub.protocols || [],
       },
       topology: null,
       topology_family: null,
       componentIds: partIds,
-      mpns: [],
+      mpns: partIds
+        .map((partId) => partFromLookup(partId, partLookup).mpn)
+        .filter((mpn): mpn is string => Boolean(mpn)),
       bom_reference: partIds,
-      parts: partIds.map((partId) => ({
-        design_part_id: partId,
-        part_number: partId,
-        mpn: null,
-      })),
-      requirements: [],
+      parts: partIds.map((partId) => partFromLookup(partId, partLookup)),
+      requirements,
       interfaces: [],
       ai_generated: true,
     } as SubsystemSummary;
@@ -117,7 +217,7 @@ export function graphSegmentsFromData(
       ? plan!.packages
       : [];
   return rows
-    .map((row) => {
+    .map((row): GraphSegmentSummary | null => {
       const item = asRecord(row);
       if (!item) return null;
       const id = asString(item.graph_segment_id || item.id || item.work_package_id);

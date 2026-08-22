@@ -12,9 +12,11 @@ import {
   SEGMENT_ACTIONS,
   isTechnicalGraphComplete,
   nextGraphSegmentId,
+  partLookupFromData,
   subsystemsFromDiscoveryPlan,
 } from '../utils/technicalGraphMappers';
 import type { SubsystemSummary } from '@/app/services/api';
+import type { ArchitecturePartLookup } from '@/app/pages/architecture/utils/connectionMapping';
 
 const STORAGE_PREFIX = 'technical-graph-run:';
 
@@ -32,6 +34,7 @@ export interface UseTechnicalGraphRun {
   actions: TechnicalGraphAction[];
   primaryActions: TechnicalGraphAction[];
   subsystemSummaries: SubsystemSummary[];
+  partLookup: ArchitecturePartLookup;
   busy: boolean;
   error: string | null;
   isComplete: boolean;
@@ -49,6 +52,8 @@ export function useTechnicalGraphRun(designId: string | null): UseTechnicalGraph
   const [error, setError] = useState<string | null>(null);
   const [selectedSegmentId, setSelectedSegmentId] = useState<string | null>(null);
   const mountedRef = useRef(true);
+  const partLookupRef = useRef<ArchitecturePartLookup>({});
+  const partLookupRunRef = useRef<string | null>(null);
 
   useEffect(() => {
     mountedRef.current = true;
@@ -59,6 +64,14 @@ export function useTechnicalGraphRun(designId: string | null): UseTechnicalGraph
 
   const applyEnvelope = useCallback((next: TechnicalGraphUiResponse) => {
     if (!mountedRef.current) return;
+    if (next.run_id && next.run_id !== partLookupRunRef.current) {
+      partLookupRunRef.current = next.run_id;
+      partLookupRef.current = {};
+    }
+    const incomingPartLookup = partLookupFromData((next.data || {}) as Record<string, unknown>);
+    if (Object.keys(incomingPartLookup).length > 0) {
+      partLookupRef.current = incomingPartLookup;
+    }
     setEnvelope(next);
     setError(null);
     if (next.run_id && designId) {
@@ -137,7 +150,7 @@ export function useTechnicalGraphRun(designId: string | null): UseTechnicalGraph
       }
       const payload = await postTechnicalGraphAction(
         envelope.run_id,
-        body as Parameters<typeof postTechnicalGraphAction>[1],
+        body as unknown as Parameters<typeof postTechnicalGraphAction>[1],
       );
       applyEnvelope(payload);
     } catch (err) {
@@ -152,6 +165,13 @@ export function useTechnicalGraphRun(designId: string | null): UseTechnicalGraph
   const data = (envelope?.data || {}) as Record<string, unknown>;
   const subsystemSummaries = useMemo(
     () => subsystemsFromDiscoveryPlan(data),
+    [data],
+  );
+  const partLookup = useMemo(
+    () => {
+      const current = partLookupFromData(data);
+      return Object.keys(current).length > 0 ? current : partLookupRef.current;
+    },
     [data],
   );
   const primaryActions = useMemo(
@@ -169,6 +189,7 @@ export function useTechnicalGraphRun(designId: string | null): UseTechnicalGraph
     actions: envelope?.actions || [],
     primaryActions,
     subsystemSummaries,
+    partLookup,
     busy,
     error,
     isComplete: isTechnicalGraphComplete(envelope),

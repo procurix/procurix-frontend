@@ -26,6 +26,7 @@ interface ComponentNodeData extends Component {
 const SYMBOL_WIDTH = 390;
 const PIN_ROW_HEIGHT = { collapsed: 34, expanded: 42 };
 const PIN_AREA_PADDING_Y = 14;
+const PIN_AREA_MIN_HEIGHT = { collapsed: 62, expanded: 104 };
 const PIN_HANDLE_SIZE = 13;
 const DETAIL_ROW_LIMIT = 8;
 
@@ -223,9 +224,14 @@ export const ComponentNode = (props: NodeProps) => {
   const rowHeight = isExpanded ? PIN_ROW_HEIGHT.expanded : PIN_ROW_HEIGHT.collapsed;
   const splitIndex = Math.ceil(visiblePins.length / 2);
   const rowCount = Math.max(splitIndex, visiblePins.length - splitIndex, hasVisiblePins ? 1 : 0);
+  const pinRowsHeight = rowCount * rowHeight;
+  const pinAreaMinHeight = isExpanded ? PIN_AREA_MIN_HEIGHT.expanded : PIN_AREA_MIN_HEIGHT.collapsed;
   const pinAreaHeight = hasVisiblePins
-    ? PIN_AREA_PADDING_Y * 2 + rowCount * rowHeight
+    ? Math.max(pinAreaMinHeight, PIN_AREA_PADDING_Y * 2 + pinRowsHeight)
     : 70;
+  const pinRowsTopOffset = hasVisiblePins
+    ? Math.max(PIN_AREA_PADDING_Y, (pinAreaHeight - pinRowsHeight) / 2)
+    : PIN_AREA_PADDING_Y;
 
   const sideForIndex = (index: number): PinSide => (index < splitIndex ? 'left' : 'right');
   const rowForIndex = (index: number): number => (
@@ -243,7 +249,7 @@ export const ComponentNode = (props: NodeProps) => {
       const side = sideForIndex(index);
       const row = rowForIndex(index);
       const color = pinColor(pin.type, active);
-      const top = `${PIN_AREA_PADDING_Y + row * rowHeight + rowHeight / 2}px`;
+      const top = `${pinRowsTopOffset + row * rowHeight + rowHeight / 2}px`;
       const handleStyle = {
         top,
         width: `${PIN_HANDLE_SIZE}px`,
@@ -400,7 +406,7 @@ export const ComponentNode = (props: NodeProps) => {
             const side = sideForIndex(index);
             const row = rowForIndex(index);
             const active = isActivePin(pinNumber, pin);
-            const top = PIN_AREA_PADDING_Y + row * rowHeight;
+            const top = pinRowsTopOffset + row * rowHeight;
             const widthClass = 'w-[48%]';
             const sideClass = side === 'left'
               ? `left-0 ${widthClass} pl-0 pr-4`

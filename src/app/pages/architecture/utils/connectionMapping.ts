@@ -82,6 +82,23 @@ export interface ArchitectureUnresolvedConnectionCandidate {
   missing: Array<'source_pin' | 'target_pin'>;
 }
 
+export interface ArchitecturePartLookupRow {
+  design_part_id?: string | null;
+  part_number?: string | null;
+  mpn?: string | null;
+  component_id?: string | null;
+  designator?: string | null;
+  category?: string | null;
+  classification?: string | null;
+  description?: string | null;
+  manufacturer?: string | null;
+  quantity?: number | null;
+  datasheet_url?: string | null;
+  specs?: Record<string, unknown> | null;
+}
+
+export type ArchitecturePartLookup = Record<string, ArchitecturePartLookupRow>;
+
 function hasPinToPinEndpoints(conn: Connection): boolean {
   return Boolean(conn.source_pin?.trim() && conn.target_pin?.trim());
 }
@@ -103,32 +120,52 @@ export function extractInstanceIndex(partId: string): number | null {
   return chunks.length > 1 && /^\d+$/.test(last) ? Number.parseInt(last, 10) : null;
 }
 
+function lookupRowForPart(partId: string, partLookup?: ArchitecturePartLookup): ArchitecturePartLookupRow | undefined {
+  return partLookup?.[partId];
+}
+
+function lookupMpn(partId: string, partLookup?: ArchitecturePartLookup): string {
+  const row = lookupRowForPart(partId, partLookup);
+  return String(row?.mpn || row?.part_number || extractBaseMpn(partId) || partId);
+}
+
 export function buildArchitectureComponents(
   connections: Connection[],
-  displayedPartNumbers: string[],
+  displayedPartIds: string[],
   specsMap: Record<string, Record<string, unknown>>,
   pinoutMap: Record<string, Record<string, { name: string; type: string; description: string }>> = {},
+  partLookup?: ArchitecturePartLookup,
 ): Component[] {
   const uniquePartIds = new Set<string>();
   connections.forEach((conn) => {
     if (conn.source_part) uniquePartIds.add(conn.source_part);
     if (conn.target_part) uniquePartIds.add(conn.target_part);
   });
-  displayedPartNumbers.forEach((partNumber) => uniquePartIds.add(partNumber));
+  displayedPartIds.forEach((partId) => uniquePartIds.add(partId));
 
   return Array.from(uniquePartIds).map((partId) => {
-    const baseMpn = extractBaseMpn(partId);
+    const lookup = lookupRowForPart(partId, partLookup);
+    const baseMpn = lookupMpn(partId, partLookup);
     const instanceIndex = extractInstanceIndex(partId);
-    const specs = specsMap[baseMpn] ?? {};
-    const category = typeof specs.Category === 'string' ? specs.Category : 'component';
-    const description = typeof specs.Description === 'string'
-      ? specs.Description
-      : `Component ${baseMpn}`;
+    const specs: Record<string, unknown> = {
+      ...(specsMap[baseMpn] ?? {}),
+      ...(lookup?.specs ?? {}),
+      DesignPartId: lookup?.design_part_id || partId,
+      Designator: lookup?.designator || lookup?.component_id || undefined,
+    };
+    const category = lookup?.category
+      || (typeof specs.Category === 'string' ? specs.Category : undefined)
+      || 'component';
+    const description = lookup?.description
+      || (typeof specs.Description === 'string' ? specs.Description : undefined)
+      || `Component ${baseMpn}`;
+    const reference = lookup?.designator || lookup?.component_id || partId;
 
     return {
       id: partId,
-      reference: partId,
+      reference,
       partNumber: baseMpn,
+      manufacturer: lookup?.manufacturer || undefined,
       type: instanceIndex !== null ? `${category} (${instanceIndex})` : category,
       description,
       specs: {

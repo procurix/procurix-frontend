@@ -9,3 +9,5 @@ export * from './api/subsystems';
 export * from './api/impact';
 export * from './api/chat';
 export * from './api/technicalGraph';
+export * from './api/ingestion';
+export * from './api/ingestionClient';

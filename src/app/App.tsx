@@ -32,7 +32,6 @@ const CompletedPage = lazy(() => import('./pages/completed/CompletedPage').then(
 const OptimizationPage = lazy(() => import('./pages/optimization/OptimizationPage').then(module => ({ default: module.OptimizationPage })));
 const ChatConsolePage = lazy(() => import('./pages/chat/ChatConsolePage').then(module => ({ default: module.ChatConsolePage })));
 const IngestionLayout = lazy(() => import('./pages/ingestion/components/IngestionLayout').then(module => ({ default: module.IngestionLayout })));
-const IngestionInboxPage = lazy(() => import('./pages/ingestion/IngestionInboxPage').then(module => ({ default: module.IngestionInboxPage })));
 const IngestionDocumentsPage = lazy(() => import('./pages/ingestion/IngestionDocumentsPage').then(module => ({ default: module.IngestionDocumentsPage })));
 const IngestionDocumentPage = lazy(() => import('./pages/ingestion/IngestionDocumentPage').then(module => ({ default: module.IngestionDocumentPage })));
 const IngestionVocabularyPage = lazy(() => import('./pages/ingestion/IngestionVocabularyPage').then(module => ({ default: module.IngestionVocabularyPage })));
@@ -85,8 +84,7 @@ export default function App() {
             <Route path="/chat" element={<AuthGuard><Layout showStageIndicator={true}><ChatConsolePage /></Layout></AuthGuard>} />
 
             <Route path="/ingestion" element={<AuthGuard><Layout showStageIndicator={false}><IngestionLayout /></Layout></AuthGuard>}>
-              <Route index element={<Navigate to="/ingestion/inbox" replace />} />
-              <Route path="inbox" element={<IngestionInboxPage />} />
+              <Route index element={<Navigate to="/ingestion/documents" replace />} />
               <Route path="documents" element={<IngestionDocumentsPage />} />
               <Route path="documents/:documentId" element={<IngestionDocumentPage />} />
               <Route path="vocabulary" element={<IngestionVocabularyPage />} />

@@ -186,12 +186,7 @@ function CandidateCard({
         onApprove={onApprove}
         onReject={onReject}
       />
-      <div
-        className={cn(
-          'grid gap-3 sm:grid-cols-2',
-          rejected && 'pointer-events-none opacity-60',
-        )}
-      >
+      <div className={cn(rejected && 'pointer-events-none opacity-60')}>
         <Field label="Raw text">
           {editable && !rejected ? (
             <Input
@@ -200,18 +195,6 @@ function CandidateCard({
             />
           ) : (
             <p className={cn('text-sm', rejected && 'line-through')}>{candidate.raw_text}</p>
-          )}
-        </Field>
-        <Field label="Canonical name">
-          {editable && !rejected ? (
-            <Input
-              value={candidate.canonical_name}
-              onChange={(e) =>
-                onChange({ ...candidate, canonical_name: e.target.value, review_status: 'edited' })
-              }
-            />
-          ) : (
-            <p className={cn('text-sm', rejected && 'line-through')}>{candidate.canonical_name}</p>
           )}
         </Field>
       </div>
@@ -263,7 +246,7 @@ function ClusterBatchEditor({
               onReject={() => updateCluster(index, { ...cluster, review_status: 'rejected' })}
             />
             <div className={cn(rejected && 'pointer-events-none opacity-60')}>
-              <Field label="Canonical name">
+              <Field label="Primary name">
                 {editable && !rejected ? (
                   <Input
                     value={cluster.canonical_name}

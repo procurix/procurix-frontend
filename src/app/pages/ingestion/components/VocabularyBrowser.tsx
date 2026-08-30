@@ -74,7 +74,7 @@ export function VocabularyBrowser({ enabled }: VocabularyBrowserProps) {
             <Input
               value={searchDraft}
               onChange={(e) => setSearchDraft(e.target.value)}
-              placeholder="Search canonical labels or aliases…"
+              placeholder="Search primary labels or aliases…"
               onKeyDown={(e) => {
                 if (e.key === 'Enter') handleSearch();
               }}
@@ -166,7 +166,7 @@ function BucketTable({
         <thead className="bg-slate-50">
           <tr>
             <th className="px-3 py-2 text-left font-medium text-slate-600">Kind</th>
-            <th className="px-3 py-2 text-left font-medium text-slate-600">Canonical label</th>
+            <th className="px-3 py-2 text-left font-medium text-slate-600">Primary label</th>
             <th className="px-3 py-2 text-left font-medium text-slate-600">Labels</th>
             <th className="px-3 py-2 text-left font-medium text-slate-600">Status</th>
             <th className="px-3 py-2 text-left font-medium text-slate-600">Sources</th>

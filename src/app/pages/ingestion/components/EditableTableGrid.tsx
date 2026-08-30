@@ -5,6 +5,16 @@ import { cn } from '@/app/shared/components/ui/utils';
 import type { ChunkTableContent } from '@/app/services/api/ingestion';
 import type { TableEvidenceHighlight } from './evidenceHighlightUtils';
 
+function uniqueColumnName(columns: string[], base = 'Column'): string {
+  let index = columns.length + 1;
+  let candidate = `${base} ${index}`;
+  while (columns.includes(candidate)) {
+    index += 1;
+    candidate = `${base} ${index}`;
+  }
+  return candidate;
+}
+
 interface EditableTableGridProps {
   content: ChunkTableContent;
   editable: boolean;
@@ -63,6 +73,48 @@ export function EditableTableGrid({
     });
   };
 
+  const renameColumn = (fromColumn: string, toColumn: string) => {
+    const trimmed = toColumn.trim();
+    if (!trimmed || trimmed === fromColumn || columns.includes(trimmed)) return;
+    const nextColumns = columns.map((column) => (column === fromColumn ? trimmed : column));
+    onChange({
+      ...content,
+      columns: nextColumns,
+      rows: rows.map((row) => {
+        if (!(fromColumn in row)) return row;
+        const next = { ...row, [trimmed]: row[fromColumn] };
+        delete next[fromColumn];
+        return next;
+      }),
+      column_count: nextColumns.length,
+    });
+  };
+
+  const addColumn = () => {
+    const name = uniqueColumnName(columns);
+    onChange({
+      ...content,
+      columns: [...columns, name],
+      rows: rows.map((row) => ({ ...row, [name]: '' })),
+      column_count: columns.length + 1,
+    });
+  };
+
+  const removeColumn = (column: string) => {
+    if (columns.length <= 1) return;
+    const nextColumns = columns.filter((entry) => entry !== column);
+    onChange({
+      ...content,
+      columns: nextColumns,
+      rows: rows.map((row) => {
+        const next = { ...row };
+        delete next[column];
+        return next;
+      }),
+      column_count: nextColumns.length,
+    });
+  };
+
   if (!columns.length) {
     return (
       <p className="text-sm text-slate-500">This chunk has no table columns.</p>
@@ -73,6 +125,9 @@ export function EditableTableGrid({
     <div className="space-y-3">
       {editable && (
         <div className="flex flex-wrap gap-2">
+          <Button type="button" variant="outline" size="sm" onClick={addColumn}>
+            Add column
+          </Button>
           <Button type="button" variant="outline" size="sm" onClick={addRow}>
             Add row
           </Button>
@@ -97,7 +152,52 @@ export function EditableTableGrid({
                         : 'text-slate-600',
                     )}
                   >
-                    {column}
+                    {editable ? (
+                      <div className="flex min-w-[8rem] items-center gap-1">
+                        <input
+                          type="text"
+                          key={column}
+                          defaultValue={column}
+                          aria-label={`Column heading: ${column}`}
+                          onBlur={(event) => {
+                            const next = event.target.value.trim();
+                            if (!next || next === column) {
+                              event.target.value = column;
+                              return;
+                            }
+                            if (columns.includes(next)) {
+                              event.target.value = column;
+                              return;
+                            }
+                            renameColumn(column, next);
+                          }}
+                          onKeyDown={(event) => {
+                            if (event.key === 'Enter') event.currentTarget.blur();
+                          }}
+                          className={cn(
+                            'min-w-0 flex-1 rounded border border-transparent bg-slate-100 px-2 py-1 text-sm font-medium',
+                            'focus:border-blue-400 focus:bg-white focus:outline-none focus:ring-1 focus:ring-blue-400',
+                          )}
+                        />
+                        <Button
+                          type="button"
+                          variant="ghost"
+                          size="sm"
+                          className="h-7 w-7 shrink-0 p-0 text-red-600 hover:text-red-700"
+                          disabled={columns.length <= 1}
+                          title={
+                            columns.length <= 1
+                              ? 'At least one column is required'
+                              : `Remove column ${column}`
+                          }
+                          onClick={() => removeColumn(column)}
+                        >
+                          <Trash2 className="h-3.5 w-3.5" />
+                        </Button>
+                      </div>
+                    ) : (
+                      column
+                    )}
                   </th>
                 );
               })}

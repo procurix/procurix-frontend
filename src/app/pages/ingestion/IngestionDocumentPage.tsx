@@ -2,9 +2,9 @@ import { Link, useParams, useSearchParams } from 'react-router-dom';
 import { Loader2 } from 'lucide-react';
 import { usePipeline } from '@/app/pages/ingestion/hooks/usePipeline';
 import { DocumentPipelineView } from '@/app/pages/ingestion/components/DocumentPipelineView';
-import type { InboxTab } from '@/app/pages/ingestion/inbox/inboxUtils';
+import type { ChunkFlowTab } from '@/app/pages/ingestion/documentWorkspaceUtils';
 
-function parseTab(value: string | null): InboxTab | undefined {
+function parseTab(value: string | null): ChunkFlowTab | undefined {
   if (value === 'table' || value === 'facts' || value === 'terms') return value;
   return undefined;
 }

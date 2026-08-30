@@ -54,7 +54,7 @@ function mention(raw: string, normalized: string, factRef: string): NerCandidate
   };
 }
 
-export function buildDefaultCandidateBatch(chunkId: string): NerCandidateBatch {
+export function buildDefaultCandidateBatch(_chunkId: string): NerCandidateBatch {
   const factRef = `fact:persisted-mock-1`;
   return {
     candidate_batch_id: 'candidate-batch-mock-001',

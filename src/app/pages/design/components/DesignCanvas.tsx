@@ -51,7 +51,6 @@ export function DesignCanvas() {
 
     if (incoming.length === 0) return;
 
-    const incomingIds = new Set(incoming.map((c) => c.id));
     setAccumulatedConnections((prev) => {
       const next = new Map<string, ReturnType<typeof mapTgaConnections>[number]>();
       // Mark all previous connections as no longer current.

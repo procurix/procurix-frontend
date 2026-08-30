@@ -1,14 +1,12 @@
 import { NavLink, Outlet } from 'react-router-dom';
-import { FileStack, Inbox, BookOpen } from 'lucide-react';
+import { FileStack, BookOpen } from 'lucide-react';
 import { cn } from '@/app/shared/components/ui/utils';
 import { INGESTION_BASE } from '@/app/services/api/ingestion';
 import { useIngestionHealth } from '@/app/pages/ingestion/hooks/useIngestionHealth';
 import { IngestionDevProvider } from '@/app/pages/ingestion/state/IngestionDevContext';
 import { CapabilityBadges } from './CapabilityBadges';
-import { IngestionDevToolbar } from './IngestionDevToolbar';
 
 const NAV_ITEMS = [
-  { to: '/ingestion/inbox', label: 'Inbox', icon: Inbox },
   { to: '/ingestion/documents', label: 'Documents', icon: FileStack },
   { to: '/ingestion/vocabulary', label: 'Vocabulary', icon: BookOpen },
 ] as const;
@@ -57,8 +55,6 @@ function IngestionLayoutInner() {
           <div className="mt-1 font-mono text-xs text-red-700">{error}</div>
         </div>
       )}
-
-      <IngestionDevToolbar />
 
       <nav className="flex gap-1 border-b border-slate-200">
         {NAV_ITEMS.map(({ to, label, icon: Icon }) => (

@@ -12,7 +12,7 @@ import {
 } from '@/app/services/api/ingestion';
 import { commitChunkWithDevMode } from '@/app/services/api/ingestionClient';
 import { useIngestionDev } from '@/app/pages/ingestion/state/IngestionDevContext';
-import type { InboxTab } from '@/app/pages/ingestion/inbox/inboxUtils';
+import type { ChunkFlowTab } from '@/app/pages/ingestion/documentWorkspaceUtils';
 import { cloneTableContent, chunkDisplayTitle } from './chunkUtils';
 import { computeEvidenceHighlight, hasTableHighlight } from './evidenceHighlightUtils';
 import { EditableTableGrid } from './EditableTableGrid';
@@ -22,7 +22,7 @@ import { NerReviewPanel } from './NerReviewPanel';
 interface ChunkFlowPanelProps {
   chunkPipeline: IngestionChunkPipeline;
   documentId: string;
-  focusSection?: InboxTab;
+  focusSection?: ChunkFlowTab;
   onUpdated: () => Promise<void>;
 }
 
@@ -206,7 +206,7 @@ export function ChunkFlowPanel({
           description={
             isCommitted
               ? 'Committed table — use See evidence on facts to highlight source rows.'
-              : 'Fix parse glitches, save, then commit to start fact extraction.'
+              : 'Edit headings, rows, and columns, save, then commit to start fact extraction.'
           }
         />
 

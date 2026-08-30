@@ -687,7 +687,7 @@ function SystemArchitectureViewInner({ components, onArchitectureComplete, backe
         if (!pinField && realIds.has(partId)) {
           const block = renderBlocks.find((b) => b.id === partId);
           const firstKey = block ? Object.keys(block.pinout || {})[0] : undefined;
-          const firstPinData = block && firstKey ? block.pinout[firstKey] : undefined;
+          const firstPinData = block && firstKey ? block.pinout?.[firstKey] : undefined;
           const activeName = firstPinData?.name || firstKey;
           if (activeName) {
             const existing = extended.get(partId);

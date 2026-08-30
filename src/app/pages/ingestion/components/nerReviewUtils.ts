@@ -2,7 +2,6 @@ import type {
   NerCandidateBatch,
   NerCandidateCard,
   NerClusterBatch,
-  NerClusterCard,
   NerMappingBatch,
   NerStage,
   NerStageBatch,
@@ -18,6 +17,10 @@ export function isNerItemRejected(item: NerReviewable): boolean {
 
 export function isNerItemKept(item: NerReviewable): boolean {
   return item.review_status !== 'rejected';
+}
+
+function isNerReviewable(value: unknown): value is NerReviewable {
+  return typeof value === 'object' && value !== null && 'review_status' in value;
 }
 
 export function countNerReviewStates(items: NerReviewable[]): {
@@ -84,13 +87,13 @@ export function listStageBatchItems(batch: NerStageBatch, stage: NerStage): NerR
     return (batch as NerClusterBatch).clusters;
   }
   const mappingBatch = batch as NerMappingBatch;
-  return [
-    ...mappingBatch.bucket_mappings,
-    ...(mappingBatch.proposed_bucket_changes ?? []).filter(
-      (change): change is NerReviewable =>
-        typeof change === 'object' && change !== null && 'review_status' in change,
-    ),
-  ];
+  const proposedChanges: NerReviewable[] = [];
+  for (const change of mappingBatch.proposed_bucket_changes ?? []) {
+    if (isNerReviewable(change)) {
+      proposedChanges.push(change);
+    }
+  }
+  return [...mappingBatch.bucket_mappings, ...proposedChanges];
 }
 
 export function normalizeNerBatchForApproval(batch: NerStageBatch, stage: NerStage): NerStageBatch {
@@ -121,9 +124,7 @@ export function normalizeNerBatchForApproval(batch: NerStageBatch, stage: NerSta
       normalizeNerItemForApproval(item),
     ),
     proposed_bucket_changes: mappingBatch.proposed_bucket_changes?.map((change) =>
-      typeof change === 'object' && change !== null && 'review_status' in change
-        ? normalizeNerItemForApproval(change as NerReviewable)
-        : change,
+      isNerReviewable(change) ? normalizeNerItemForApproval(change) : change,
     ),
   };
 }

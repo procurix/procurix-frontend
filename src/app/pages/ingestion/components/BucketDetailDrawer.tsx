@@ -4,7 +4,7 @@ import { Link } from 'react-router-dom';
 import type { CatalogBucket, CatalogBucketLink, ChunkTableContent } from '@/app/services/api/ingestion';
 import { getChunkContent, getMentionTrace } from '@/app/services/api/ingestion';
 import { useCatalogBucket } from '@/app/pages/ingestion/hooks/useCatalogBucket';
-import { buildDocumentWorkspaceHref } from '@/app/pages/ingestion/inbox/inboxUtils';
+import { buildDocumentWorkspaceHref } from '@/app/pages/ingestion/documentWorkspaceUtils';
 import { chunkDisplayTitle } from '@/app/pages/ingestion/components/chunkUtils';
 import {
   computeMentionSourceHighlight,
@@ -119,6 +119,7 @@ export function BucketDetailDrawer({ bucketSummary, onClose }: BucketDetailDrawe
             <p className="text-xs font-semibold uppercase tracking-wide text-slate-500">
               Bucket sources
             </p>
+            <p className="mt-1 text-xs font-medium text-slate-500">Primary label</p>
             <p className="truncate text-lg font-semibold text-slate-900">{detail.canonical_label}</p>
             <p className="mt-0.5 text-sm text-slate-500">
               {detail.bucket_kind}

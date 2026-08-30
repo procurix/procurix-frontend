@@ -1,7 +1,7 @@
 import { Loader2, X } from 'lucide-react';
 import { Link } from 'react-router-dom';
 import type { MentionTrace } from '@/app/services/api/ingestion';
-import { buildDocumentWorkspaceHref } from '@/app/pages/ingestion/inbox/inboxUtils';
+import { buildDocumentWorkspaceHref } from '@/app/pages/ingestion/documentWorkspaceUtils';
 import { Button } from '@/app/shared/components/ui/button';
 import { cn } from '@/app/shared/components/ui/utils';
 
@@ -128,7 +128,7 @@ export function TracePanel({
               {trace.bucket && (
                 <div className="mt-4 rounded-lg border border-teal-200 bg-teal-50 px-3 py-3">
                   <p className="text-xs font-semibold uppercase tracking-wide text-teal-700">
-                    Bucket
+                    Primary label
                   </p>
                   <p className="mt-1 font-medium text-teal-900">
                     {String(trace.bucket.canonical_label ?? '')}

@@ -4,14 +4,14 @@ import { toast } from 'sonner';
 import { Button } from '@/app/shared/components/ui/button';
 import type { IngestionDocumentPipeline } from '@/app/services/api/ingestion';
 import { commitDocumentChunksWithDevMode } from '@/app/services/api/ingestionClient';
-import type { InboxTab } from '@/app/pages/ingestion/inbox/inboxUtils';
+import type { ChunkFlowTab } from '@/app/pages/ingestion/documentWorkspaceUtils';
 import { ChunkFlowPanel } from './ChunkFlowPanel';
 import { ChunkListItem } from './ChunkListItem';
 
 interface DocumentPipelineViewProps {
   pipeline: IngestionDocumentPipeline;
   focusChunkId?: string | null;
-  focusTab?: InboxTab;
+  focusTab?: ChunkFlowTab;
   onRefresh: () => Promise<void>;
 }
 

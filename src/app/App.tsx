@@ -31,6 +31,10 @@ const ReviewPage = lazy(() => import('./pages/review/ReviewPage').then(module =>
 const CompletedPage = lazy(() => import('./pages/completed/CompletedPage').then(module => ({ default: module.CompletedPage })));
 const OptimizationPage = lazy(() => import('./pages/optimization/OptimizationPage').then(module => ({ default: module.OptimizationPage })));
 const ChatConsolePage = lazy(() => import('./pages/chat/ChatConsolePage').then(module => ({ default: module.ChatConsolePage })));
+const IngestionLayout = lazy(() => import('./pages/ingestion/components/IngestionLayout').then(module => ({ default: module.IngestionLayout })));
+const IngestionDocumentsPage = lazy(() => import('./pages/ingestion/IngestionDocumentsPage').then(module => ({ default: module.IngestionDocumentsPage })));
+const IngestionDocumentPage = lazy(() => import('./pages/ingestion/IngestionDocumentPage').then(module => ({ default: module.IngestionDocumentPage })));
+const IngestionVocabularyPage = lazy(() => import('./pages/ingestion/IngestionVocabularyPage').then(module => ({ default: module.IngestionVocabularyPage })));
 
 function RouteLoading() {
   return (
@@ -78,6 +82,13 @@ export default function App() {
             <Route path="/completed" element={<AuthGuard><CompletedPage /></AuthGuard>} />
             <Route path="/optimization" element={<AuthGuard><OptimizationPage /></AuthGuard>} />
             <Route path="/chat" element={<AuthGuard><Layout showStageIndicator={true}><ChatConsolePage /></Layout></AuthGuard>} />
+
+            <Route path="/ingestion" element={<AuthGuard><Layout showStageIndicator={false}><IngestionLayout /></Layout></AuthGuard>}>
+              <Route index element={<Navigate to="/ingestion/documents" replace />} />
+              <Route path="documents" element={<IngestionDocumentsPage />} />
+              <Route path="documents/:documentId" element={<IngestionDocumentPage />} />
+              <Route path="vocabulary" element={<IngestionVocabularyPage />} />
+            </Route>
 
             <Route path="*" element={<Navigate to="/" replace />} />
           </Routes>

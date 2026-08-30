@@ -137,7 +137,7 @@ export function useTechnicalGraphRun(designId: string | null): UseTechnicalGraph
       }
       const payload = await postTechnicalGraphAction(
         envelope.run_id,
-        body as Parameters<typeof postTechnicalGraphAction>[1],
+        body as unknown as Parameters<typeof postTechnicalGraphAction>[1],
       );
       applyEnvelope(payload);
     } catch (err) {

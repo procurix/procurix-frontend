@@ -32,24 +32,22 @@ export function discoveryPlanFromData(data: Record<string, unknown> | null | und
   const plan = asRecord(data?.subsystem_discovery_plan);
   if (!plan) return null;
   const subsystemsRaw = Array.isArray(plan.subsystems) ? plan.subsystems : [];
-  const subsystems: DiscoverySubsystem[] = subsystemsRaw
-    .map((row) => {
-      const item = asRecord(row);
-      if (!item) return null;
-      const id = asString(item.id);
-      if (!id) return null;
-      return {
-        id,
-        name: asString(item.name) || id,
-        purpose: asString(item.purpose) || undefined,
-        part_ids: asStringList(item.part_ids),
-        requirement_ids: asStringList(item.requirement_ids),
-        protocols: asStringList(item.protocols),
-        rationale: asStringList(item.rationale),
-        confidence: typeof item.confidence === 'number' ? item.confidence : undefined,
-      };
-    })
-    .filter((row): row is DiscoverySubsystem => row != null);
+  const subsystems: DiscoverySubsystem[] = subsystemsRaw.flatMap((row) => {
+    const item = asRecord(row);
+    if (!item) return [];
+    const id = asString(item.id);
+    if (!id) return [];
+    return [{
+      id,
+      name: asString(item.name) || id,
+      purpose: asString(item.purpose) || undefined,
+      part_ids: asStringList(item.part_ids),
+      requirement_ids: asStringList(item.requirement_ids),
+      protocols: asStringList(item.protocols),
+      rationale: asStringList(item.rationale),
+      confidence: typeof item.confidence === 'number' ? item.confidence : undefined,
+    }];
+  });
   return {
     ...plan,
     subsystems,
@@ -116,22 +114,20 @@ export function graphSegmentsFromData(
     : Array.isArray(plan?.packages)
       ? plan!.packages
       : [];
-  return rows
-    .map((row) => {
-      const item = asRecord(row);
-      if (!item) return null;
-      const id = asString(item.graph_segment_id || item.id || item.work_package_id);
-      if (!id) return null;
-      return {
-        id,
-        name: asString(item.name) || id,
-        focus: asString(item.focus) || undefined,
-        status: asString(item.status) || undefined,
-        part_ids: asStringList(item.part_ids),
-        requirement_ids: asStringList(item.requirement_ids),
-      };
-    })
-    .filter((row): row is GraphSegmentSummary => row != null);
+  return rows.flatMap((row) => {
+    const item = asRecord(row);
+    if (!item) return [];
+    const id = asString(item.graph_segment_id || item.id || item.work_package_id);
+    if (!id) return [];
+    return [{
+      id,
+      name: asString(item.name) || id,
+      focus: asString(item.focus) || undefined,
+      status: asString(item.status) || undefined,
+      part_ids: asStringList(item.part_ids),
+      requirement_ids: asStringList(item.requirement_ids),
+    }];
+  });
 }
 
 export function nextGraphSegmentId(data: Record<string, unknown> | null | undefined): string {

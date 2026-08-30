@@ -46,7 +46,7 @@ const QUICK_LINKS: QuickLink[] = [
     title: 'Upload supplemental docs',
     description: 'Attach datasheets, standards, and reference designs to a BOM.',
     icon: FileStack,
-    comingSoon: true,
+    to: '/ingestion/documents',
   },
   {
     title: 'View metrics',

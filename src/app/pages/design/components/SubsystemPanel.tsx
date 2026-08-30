@@ -23,7 +23,7 @@ const TABS: { key: TabKey; label: string; icon: typeof Box }[] = [
 ];
 
 export function SubsystemPanel() {
-  const { panelOpenSubsystemId, setPanelOpenSubsystemId, displaySubsystems, technicalGraph } = useDesignContext();
+  const { panelOpenSubsystemId, setPanelOpenSubsystemId, displaySubsystems } = useDesignContext();
   const isOpen = panelOpenSubsystemId !== null;
 
   const openSub = useMemo(() => {
@@ -352,7 +352,7 @@ function CoverageTab({ subsystem }: { subsystem: PanelContentProps['subsystem'] 
 }
 
 function SubsystemRequirementsTab({ subsystem }: { subsystem: PanelContentProps['subsystem'] }) {
-  const { sessionId, subsystems: subsystemsState, refreshSubsystemRequirementsCount } = useDesignContext();
+  const { sessionId, subsystems: subsystemsState } = useDesignContext();
   const subId = subsystem.subsystem_id || subsystem.id;
   const [reqs, setReqs] = useState<SubsystemRequirementItem[]>([]);
   const [loading, setLoading] = useState(true);
@@ -412,7 +412,7 @@ function SubsystemRequirementsTab({ subsystem }: { subsystem: PanelContentProps[
       setReqs(r.requirements ?? []);
       // Bump the design-wide subsystem-requirements count so Continue to
       // Review can re-check whether at least one subsystem has reqs now.
-      refreshSubsystemRequirementsCount();
+      void subsystemsState.reload();
       toast.success(
         r.skipped
           ? 'Subsystem requirements already exist; nothing to generate.'

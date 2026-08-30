@@ -23,13 +23,13 @@ const TABS: { key: TabKey; label: string; icon: typeof Box }[] = [
 ];
 
 export function SubsystemPanel() {
-  const { panelOpenSubsystemId, setPanelOpenSubsystemId, subsystems } = useDesignContext();
+  const { panelOpenSubsystemId, setPanelOpenSubsystemId, displaySubsystems, technicalGraph } = useDesignContext();
   const isOpen = panelOpenSubsystemId !== null;
 
   const openSub = useMemo(() => {
     if (!panelOpenSubsystemId) return null;
-    return subsystems.subsystems.find(s => (s.subsystem_id || s.id) === panelOpenSubsystemId) ?? null;
-  }, [panelOpenSubsystemId, subsystems.subsystems]);
+    return displaySubsystems.find(s => (s.subsystem_id || s.id) === panelOpenSubsystemId) ?? null;
+  }, [panelOpenSubsystemId, displaySubsystems]);
 
   // Camera zoom: when a subsystem opens, zoom to its member nodes; when it
   // closes, reset the viewport. SystemArchitectureView listens for this
@@ -54,6 +54,7 @@ export function SubsystemPanel() {
         <PanelContent
           subsystem={openSub}
           onClose={() => setPanelOpenSubsystemId(null)}
+          technicalGraphMode
         />
       )}
     </motion.aside>
@@ -61,17 +62,20 @@ export function SubsystemPanel() {
 }
 
 interface PanelContentProps {
-  subsystem: ReturnType<typeof useDesignContext>['subsystems']['subsystems'][number];
+  subsystem: ReturnType<typeof useDesignContext>['displaySubsystems'][number];
   onClose: () => void;
+  technicalGraphMode?: boolean;
 }
 
-function PanelContent({ subsystem, onClose }: PanelContentProps) {
+function PanelContent({ subsystem, onClose, technicalGraphMode = false }: PanelContentProps) {
   const [tab, setTab] = useState<TabKey>('parts');
+  const visibleTab: TabKey =
+    technicalGraphMode && tab !== 'parts' && tab !== 'mapped-reqs' ? 'parts' : tab;
   const { sessionId, subsystems: subsystemsState } = useDesignContext();
   const [reviewing, setReviewing] = useState<'confirm' | 'reject' | null>(null);
   const subId = subsystem.subsystem_id || subsystem.id;
   const status = (subsystem.status ?? 'suggested').toLowerCase();
-  const isSuggested = status === 'suggested';
+  const isSuggested = status === 'suggested' && !technicalGraphMode;
 
   const handleConfirm = async () => {
     if (reviewing) return;
@@ -172,13 +176,13 @@ function PanelContent({ subsystem, onClose }: PanelContentProps) {
       </header>
 
       <nav className="shrink-0 flex items-center gap-0 border-b border-slate-200 px-2 text-xs">
-        {TABS.map(({ key, label, icon: Icon }) => (
+        {(technicalGraphMode ? TABS.filter(t => t.key === 'parts' || t.key === 'mapped-reqs') : TABS).map(({ key, label, icon: Icon }) => (
           <button
             key={key}
             type="button"
             onClick={() => setTab(key)}
             className={`flex items-center gap-1 border-b-2 px-3 py-2 transition-colors ${
-              tab === key
+              visibleTab === key
                 ? 'border-blue-500 text-blue-700'
                 : 'border-transparent text-slate-500 hover:text-slate-700'
             }`}
@@ -190,10 +194,10 @@ function PanelContent({ subsystem, onClose }: PanelContentProps) {
       </nav>
 
       <div className="flex-1 overflow-y-auto">
-        {tab === 'parts' && <PartsTab subsystem={subsystem} />}
-        {tab === 'mapped-reqs' && <MappedRequirementsTab subsystem={subsystem} />}
-        {tab === 'coverage' && <CoverageTab subsystem={subsystem} />}
-        {tab === 'sub-reqs' && <SubsystemRequirementsTab subsystem={subsystem} />}
+        {visibleTab === 'parts' && <PartsTab subsystem={subsystem} />}
+        {visibleTab === 'mapped-reqs' && <MappedRequirementsTab subsystem={subsystem} />}
+        {!technicalGraphMode && visibleTab === 'coverage' && <CoverageTab subsystem={subsystem} />}
+        {!technicalGraphMode && visibleTab === 'sub-reqs' && <SubsystemRequirementsTab subsystem={subsystem} />}
       </div>
     </div>
   );

@@ -8,7 +8,7 @@ import { useSession } from '@/app/context/SessionContext';
 import { useDesignContext } from '../state/DesignContext';
 
 export function RequirementEditModal() {
-  const { sessionId, requirementsData, architecture, editingRequirement, closeRequirementEditor } = useDesignContext();
+  const { sessionId, requirementsData, editingRequirement, closeRequirementEditor } = useDesignContext();
   const { setCurrentStage } = useSession();
 
   const {
@@ -73,21 +73,14 @@ export function RequirementEditModal() {
               onApprove={() => actions.handleApprove(editingRequirement)}
               onReject={() => actions.setRejectingRequirement(editingRequirement)}
               onSave={updates => {
-                // Wrap actions.handleSave so the architecture gets marked stale
-                // after a successful save. handleSave already toasts on failure;
-                // we don't need to check the result here.
-                void Promise.resolve(actions.handleSave(reqId, updates)).then(() => {
-                  architecture.markStale();
-                });
+                void actions.handleSave(reqId, updates);
               }}
               onTraceSource={actions.openTraceability}
               proposal={actions.proposal}
               proposingAction={actions.proposingAction}
               onAiAction={actions.handleAiAction}
               onApplyProposal={() => {
-                void Promise.resolve(actions.handleApplyProposal()).then(() => {
-                  architecture.markStale();
-                });
+                void actions.handleApplyProposal();
               }}
               onDismissProposal={() => actions.setProposal(null)}
               history={history}
@@ -122,7 +115,6 @@ export function RequirementEditModal() {
             void Promise.resolve(
               actions.handleReject(actions.rejectingRequirement!, actions.rejectReason),
             ).then(() => {
-              architecture.markStale();
               closeRequirementEditor();
             });
           }}
